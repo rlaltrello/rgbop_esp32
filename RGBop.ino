@@ -21,6 +21,8 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 #include <NimBLEDevice.h>
+#include "logo.h"
+
 
 // --- RGBop BLE UUIDs ---
 #define PROV_SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -68,6 +70,7 @@ WeatherWidget weatherWidget;
 DateProgressWidget dateWidget;
 MorphClockWidget morphWidget;
 TextBlastWidget textBlastWidget;
+LogoWidget logoWidget;
 
 // --- ISS WIDGET GLOBALS ---
 IssLocationWidget issWidget;
@@ -133,6 +136,7 @@ class CmdCallbacks: public NimBLECharacteristicCallbacks {
 };
 
 // --- PREFERENCES & SETTINGS ---
+bool prefShowGifs = true;
 bool prefShowClock = true;
 bool prefShowDate = true;
 bool prefShowWeather = true;
@@ -158,6 +162,7 @@ void setupWebRoutes() {
     // 2. Get Current Settings
     server.on("/api/settings", HTTP_GET, []() {
         JsonDocument doc;
+        doc["gifs"] = prefShowGifs;
         doc["clock"] = prefShowClock;
         doc["date"] = prefShowDate;
         doc["weather"] = prefShowWeather;
@@ -188,6 +193,7 @@ void setupWebRoutes() {
             return;
         }
 
+        if (doc.containsKey("gifs")) prefShowGifs = doc["gifs"];
         if (doc.containsKey("clock")) prefShowClock = doc["clock"];
         if (doc.containsKey("date")) prefShowDate = doc["date"];
         if (doc.containsKey("weather")) prefShowWeather = doc["weather"];
@@ -575,6 +581,18 @@ void showWeather() {
     }
 }
 
+void showLogo() {
+     unsigned long logoStartTime = millis();
+    
+    // Run the animation for 10 seconds
+    while (millis() - logoStartTime < 10000) {
+        logoWidget.draw(&myGraphics, &myFont, 64, 64);
+        dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
+        delay(30); // ~30fps frame rate lock
+        server.handleClient();
+    }
+}
+
 void showClock() {
   // --- SHOW CLOCK ---
    unsigned long clockStartTime = millis();
@@ -715,6 +733,7 @@ bool loadConfig() {
     currentPASS = doc["password"] | "";
     
     // Load preferences (with safe fallbacks if they don't exist yet)
+    prefShowGifs = doc["gifs"] | true;
     prefShowClock = doc["clock"] | true;
     prefShowDate = doc["date"] | true;
     prefShowWeather = doc["weather"] | true;
@@ -733,7 +752,8 @@ void saveConfig() {
     JsonDocument doc;
     doc["ssid"] = currentSSID;
     doc["password"] = currentPASS;
-    
+
+    doc["gifs"] = prefShowGifs;
     doc["clock"] = prefShowClock;
     doc["date"] = prefShowDate;
     doc["weather"] = prefShowWeather;
@@ -781,7 +801,7 @@ void maintainNetwork() {
     if (WiFi.status() == WL_CONNECTED) {
         
         // --- Check Weather ---
-        if (now - lastWeatherFetch >= currentWeatherInterval || lastWeatherFetch == 0) {
+        if (prefShowWeather && (now - lastWeatherFetch >= currentWeatherInterval || lastWeatherFetch == 0)) {
             if (fetchWeatherData()) {
                 currentWeatherInterval = WEATHER_SUCCESS_INTERVAL; // Success: Wait 15 mins
             } else {
@@ -791,7 +811,7 @@ void maintainNetwork() {
         }
         
         // --- Check ISS ---
-        if (now - lastISSFetch >= currentISSInterval || lastISSFetch == 0) {
+        if (prefShowISS && (now - lastISSFetch >= currentISSInterval || lastISSFetch == 0)) {
             if (issWidget.fetchISSData()) {
                 currentISSInterval = ISS_SUCCESS_INTERVAL; // Success: Wait 3 minutes
             } else {
@@ -800,7 +820,7 @@ void maintainNetwork() {
             lastISSFetch = millis();
         }
         // --- Check Planes ---
-        if (now - lastPlanesFetch >= currentPlanesInterval || lastPlanesFetch == 0) {
+        if (prefShowPlanes && (now - lastPlanesFetch >= currentPlanesInterval || lastPlanesFetch == 0)) {
             if (planesWidget.fetchPlanesData()) {
                 currentPlanesInterval = PLANES_SUCCESS_INTERVAL; 
             } else {
@@ -953,7 +973,7 @@ void setup() {
   Serial.println("Time configured via NTP.");
   
   //planesWidget.begin(OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, MY_LAT, MY_LNG, 20.0);
-  planesWidget.begin(prefOsUser, prefOsPass, prefLat, prefLng, 20.0);
+  if (prefShowPlanes) planesWidget.begin(prefOsUser, prefOsPass, prefLat, prefLng, 20.0);
 
   // 7. --- START GIF ENGINE ---  
   gif.begin(LITTLE_ENDIAN_PIXELS);
@@ -1062,43 +1082,76 @@ void loop()
         return; // <-- Stops the rest of the normal widget loop from running!
     }
 
-   // --- PLAY GIFS ---
-   root = FILESYSTEM.open(gifDir);
-   if (root)
-   {
-        gifFile = root.openNextFile();
-        while (gifFile)
-        {
-           if (!gifFile.isDirectory())
-            {
-                // --- SERVICE BACKGROUND TASKS ---
-                // This now fires between every single widget rotation!
-                maintainNetwork(); 
-
-                memset(filePath, 0x0, sizeof(filePath));                
-                strcpy(filePath, gifFile.path());
-                
-                ShowGIF(filePath);   
-                
-                // --- Alternate the Clocks --- 
-                if (prefShowClock) {
-                    if (showMarioNext) {
-                        showClock();
-                    } else {
-                        showMorphClock();
-                    }
-                    showMarioNext = !showMarioNext; 
-                }
-                
-                if (prefShowDate) showDateProgress();  
-                if (prefShowTextBlast) showTextBlast();
-                if (prefShowWeather) showWeather();      
-                if (prefShowISS) showISS();
-                if (prefShowPlanes) showPlanes();
-            }
-            gifFile.close();
+   if (prefShowGifs) {
+       // --- PLAY GIFS ---
+       root = FILESYSTEM.open(gifDir);
+       if (root)
+       {
             gifFile = root.openNextFile();
-         }
-      root.close();
+            while (gifFile)
+            {
+               if (!gifFile.isDirectory())
+                {
+                    // --- SERVICE BACKGROUND TASKS ---
+                    // This now fires between every single widget rotation!
+                    maintainNetwork(); 
+
+                    memset(filePath, 0x0, sizeof(filePath));                
+                    strcpy(filePath, gifFile.path());
+                
+                    if (prefShowGifs) {
+                        ShowGIF(filePath);
+                    } else { // someone toggled Gifs off
+                        gifFile.close();
+                        break;
+                    }   
+                
+                    // --- Alternate the Clocks --- 
+                    if (prefShowClock) {
+                        if (showMarioNext) {
+                            showClock();
+                        } else {
+                            showMorphClock();
+                        }
+                        showMarioNext = !showMarioNext; 
+                    }
+                
+                    if (prefShowDate) showDateProgress();  
+                    if (prefShowTextBlast) showTextBlast();
+                    if (prefShowWeather) showWeather();      
+                    if (prefShowISS) showISS();
+                    if (prefShowPlanes) showPlanes();
+                }
+                gifFile.close();
+                gifFile = root.openNextFile();
+             }
+          root.close();
+       }
+} else { // no GIFs
+        maintainNetwork();
+        
+        //Check if ANY widget is turned on
+        bool anyWidgetActive = prefShowClock || prefShowDate || prefShowTextBlast || 
+                               prefShowWeather || prefShowISS || prefShowPlanes;
+
+        if (anyWidgetActive) {
+            // --- Alternate the Clocks ---  
+            if (prefShowClock) {
+                if (showMarioNext) {
+                    showClock();
+                } else {
+                    showMorphClock();
+                }
+                showMarioNext = !showMarioNext; 
+            }
+            if (prefShowDate) showDateProgress();  
+            if (prefShowTextBlast) showTextBlast();
+            if (prefShowWeather) showWeather();      
+            if (prefShowISS) showISS();
+            if (prefShowPlanes) showPlanes();
+        } else {
+            // ONLY show the logo if absolutely everything else is turned off!
+            showLogo();
+        }
    }
 }
