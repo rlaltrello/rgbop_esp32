@@ -37,6 +37,11 @@ bool provisioningMode = false;
 bool newCredentialsReceived = false;
 
 WebServer server(80);
+File fsUploadFile;
+
+String gifDir = "/gifs"; // play all GIFs in this directory on the SD card
+char filePath[256] = { 0 };
+File root, gifFile;
 
 
 
@@ -214,6 +219,110 @@ void setupWebRoutes() {
         server.send(200, "application/json", "{\"status\":\"success\"}");
         Serial.println("[API] Settings updated and saved!");
     });
+    
+    // 4. List all GIFs
+    server.on("/api/gifs", HTTP_GET, []() {
+        File root = FILESYSTEM.open(gifDir);
+        if (!root) {
+            server.send(500, "application/json", "{\"error\":\"Failed to open directory\"}");
+            return;
+        }
+
+        JsonDocument doc;
+        JsonArray array = doc["gifs"].to<JsonArray>();
+        
+        File file = root.openNextFile();
+        while (file) {
+            if (!file.isDirectory()) {
+                String fileName = String(file.name());
+                JsonObject gifObj = array.add<JsonObject>();
+                gifObj["name"] = String(file.name());
+                gifObj["size"] = file.size();
+                gifObj["enabled"] = !fileName.startsWith("_");
+            }
+            file = root.openNextFile();
+        }
+        
+        String response;
+        serializeJson(doc, response);
+        server.send(200, "application/json", response);
+    });
+
+    // 5. Delete a GIF
+    server.on("/api/gifs/delete", HTTP_POST, []() {
+        if (!server.hasArg("name")) {
+            server.send(400, "application/json", "{\"error\":\"Missing filename\"}");
+            return;
+        }
+        
+        String filename = server.arg("name");
+        // Ensure the path is strictly within the /gifs directory
+        String path = gifDir + "/" + filename;
+        
+        if (FILESYSTEM.remove(path)) {
+            Serial.printf("[FS] Deleted: %s\n", path.c_str());
+            server.send(200, "application/json", "{\"status\":\"success\"}");
+        } else {
+            server.send(500, "application/json", "{\"error\":\"Failed to delete file\"}");
+        }
+    });
+
+    server.on("/api/gifs/toggle", HTTP_POST, []() {
+        if (!server.hasArg("name") || !server.hasArg("enabled")) {
+            server.send(400, "application/json", "{\"error\":\"Missing args\"}");
+            return;
+        }
+        
+        String oldName = server.arg("name");
+        bool enable = (server.arg("enabled") == "true");
+        String newName = oldName;
+        
+        if (enable && oldName.startsWith("_")) {
+            newName = oldName.substring(1); // Remove the underscore
+        } else if (!enable && !oldName.startsWith("_")) {
+            newName = "_" + oldName; // Add the underscore
+        }
+
+        if (oldName != newName) {
+            FILESYSTEM.rename(gifDir + "/" + oldName, gifDir + "/" + newName);
+            Serial.printf("[FS] Renamed %s to %s\n", oldName.c_str(), newName.c_str());
+        }
+        
+        server.send(200, "application/json", "{\"status\":\"success\"}");
+    });
+
+    // 6. Upload a GIF (Requires a special two-part handler for streaming)
+    server.on("/api/gifs/upload", HTTP_POST, 
+        []() {
+            // Part 1: The final HTTP response sent after the upload finishes
+            server.send(200, "application/json", "{\"status\":\"success\"}");
+        }, 
+        []() {
+            // Part 2: The chunk-by-chunk stream handler
+            HTTPUpload& upload = server.upload();
+            
+            if (upload.status == UPLOAD_FILE_START) {
+                String filename = upload.filename;
+                if (!filename.startsWith("/")) filename = "/" + filename;
+                String path = gifDir + filename;
+                
+                Serial.printf("[Upload] Starting: %s\n", path.c_str());
+                fsUploadFile = FILESYSTEM.open(path, "w");
+                
+            } else if (upload.status == UPLOAD_FILE_WRITE) {
+                if (fsUploadFile) {
+                    fsUploadFile.write(upload.buf, upload.currentSize);
+                }
+            } else if (upload.status == UPLOAD_FILE_END) {
+                if (fsUploadFile) {
+                    fsUploadFile.close();
+                    Serial.printf("[Upload] Finished: %s, Size: %u bytes\n", upload.filename.c_str(), upload.totalSize);
+                }
+            }
+        }
+    );
+    // 7. Serve the actual GIF files so the app can preview them
+    server.serveStatic("/gifs", FILESYSTEM, "/gifs");
 
     server.begin();
     Serial.println("[WEB] HTTP server and API routes started on port 80");
@@ -979,9 +1088,6 @@ void setup() {
   gif.begin(LITTLE_ENDIAN_PIXELS);
 }
 
-String gifDir = "/gifs"; // play all GIFs in this directory on the SD card
-char filePath[256] = { 0 };
-File root, gifFile;
 
 void drawBluetoothWaiting() {
     // Clear the screen so it doesn't smear
@@ -1092,6 +1198,12 @@ void loop()
             {
                if (!gifFile.isDirectory())
                 {
+                    // --- THE FIX: Skip disabled GIFs ---
+                    if (String(gifFile.name()).startsWith("_")) {
+                        gifFile.close();
+                        gifFile = root.openNextFile();
+                        continue;
+                    }
                     // --- SERVICE BACKGROUND TASKS ---
                     // This now fires between every single widget rotation!
                     maintainNetwork(); 

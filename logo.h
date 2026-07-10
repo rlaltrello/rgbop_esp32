@@ -21,7 +21,7 @@ public:
         ctx->fillRect(2 * (width / 3), 0, width / 3, height);
 
         // --- 2. Text Setup ---
-        const std::string text = "RBGop";
+        const std::string text = "RGBop";
         const uint32_t textColor = 0x00FFFF;   // Cyan
         const uint32_t bgColor   = 0x000000;   // Black
         const int padding = 3;
