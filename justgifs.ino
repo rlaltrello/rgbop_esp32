@@ -1,4 +1,5 @@
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <time.h>
 #include "MarioClock.h"
 #include "morphClock.h"
@@ -844,7 +845,10 @@ void setup() {
       server.begin();
       Serial.println("[WEB] HTTP server started on port 80");
       // -------------------------------------------
-      
+      if (MDNS.begin("rgbop")) {
+          Serial.println("[mDNS] Responder started. I am now rgbop.local!");
+          MDNS.addService("http", "tcp", 80); // Helps Flutter find the web server
+      }
   }
 
   // 5. --- CONFIGURE TIME ---
@@ -935,6 +939,10 @@ void loop()
                 server.begin();
                 Serial.println("[WEB] HTTP server started on port 80");
                 // -------------------------------------------
+                if (MDNS.begin("rgbop")) {
+                    Serial.println("[mDNS] Responder started. I am now rgbop.local!");
+                    MDNS.addService("http", "tcp", 80); // Helps Flutter find the web server
+                }
                 
                 // Flash Green for Success!
                 dma_display->clearScreen();
@@ -953,6 +961,8 @@ void loop()
                 dma_display->clearScreen();
                 dma_display->fillRect(0, 0, 64, 64, dma_display->color565(255, 0, 0));
                 delay(2000);
+                NimBLEDevice::getAdvertising()->start();
+                Serial.println("[BLE] Beacon restarted! Ready for another try.");
             }
         }
         
