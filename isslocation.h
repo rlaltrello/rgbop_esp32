@@ -99,11 +99,15 @@ public:
         if (WiFi.status() != WL_CONNECTED) return false;
         
         Serial.println("Fetching ISS Location...");
+        
+        // 1. Create a dedicated client to manage the sockets safely
+        WiFiClient client; 
         HTTPClient http;
         bool issSuccess = false;
         
         for (int i = 0; i < 3; i++) {
-            http.begin("http://api.open-notify.org/iss-now.json");
+            // 2. Pass the client into the begin function!
+            http.begin(client, "http://api.open-notify.org/iss-now.json");
             int httpCode = http.GET();
             
             if (httpCode == HTTP_CODE_OK) {
@@ -115,11 +119,14 @@ public:
                 currentLat = String(lat).substring(0, 7);
                 currentLon = String(lon).substring(0, 7);
                 issSuccess = true;
+                
                 http.end();
+                client.stop(); // <-- FORCE SOCKET CLOSE
                 break;
             } else {
                 Serial.printf("ISS API failed (HTTP %d). Retry %d/3...\n", httpCode, i + 1);
                 http.end();
+                client.stop(); // <-- FORCE SOCKET CLOSE
                 delay(1000); 
             }
         }
@@ -130,7 +137,7 @@ public:
         }
 
         String geoUrl = "http://api.geonames.org/findNearbyPlaceNameJSON?username=rlaltrel&lat=" + currentLat + "&lng=" + currentLon;
-        http.begin(geoUrl);
+        http.begin(client, geoUrl); // <-- Pass client
         int httpCode = http.GET();
         bool onLand = false;
         
@@ -155,10 +162,11 @@ public:
             }
         }
         http.end();
+        client.stop(); // <-- FORCE SOCKET CLOSE
 
         if (!onLand) {
             String oceanUrl = "http://api.geonames.org/oceanJSON?username=rlaltrel&lat=" + currentLat + "&lng=" + currentLon;
-            http.begin(oceanUrl);
+            http.begin(client, oceanUrl); // <-- Pass client
             httpCode = http.GET();
             if (httpCode == HTTP_CODE_OK) {
                 String payload = http.getString();
@@ -174,6 +182,7 @@ public:
                 }
             }
             http.end();
+            client.stop(); // <-- FORCE SOCKET CLOSE
         }
 
         // Strip out the UTF-8 garbage before wrapping!

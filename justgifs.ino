@@ -13,7 +13,7 @@
 #include "planes.h"
 #include <WebServer.h>
 
-//#define SPIRAM_DMA_BUFFER 1
+#define SPIRAM_DMA_BUFFER 1
 #include "FS.h"
 #include <LittleFS.h>
 #include <AnimatedGIF.h>
@@ -281,6 +281,7 @@ void ShowGIF(char *name)
     {      
       int frameResult = gif.playFrame(true, NULL); // Play the next frame
       dma_display->flipDMABuffer();
+      server.handleClient();
       if (frameResult == 0) 
       { 
         // playFrame returned 0, meaning it hit the end of the GIF
@@ -486,6 +487,7 @@ void showWeather() {
         dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
         
         delay(30); // ~30fps frame rate lock
+        server.handleClient();
     }
 }
 
@@ -529,6 +531,7 @@ void showClock() {
       }
       
       delay(30); // Prevent the loop from running too fast
+      server.handleClient();
    }
 }
 
@@ -545,6 +548,7 @@ void showMorphClock() {
         dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
         
         delay(30); // ~30fps frame rate lock
+        server.handleClient();
     }
 }
 
@@ -562,6 +566,7 @@ void showDateProgress() {
         dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
         
         delay(30); // ~30fps frame rate lock
+        server.handleClient();
     }
 }
 
@@ -581,6 +586,7 @@ void showTextBlast() {
         dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
         
         delay(30);
+        server.handleClient();
     }
 }
 
@@ -590,6 +596,7 @@ void showPlanes() {
         planesWidget.draw(&myGraphics, &myFont, 64, 64, millis());
         dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
         delay(30);
+        server.handleClient();
     }
 }
 
@@ -606,6 +613,7 @@ void showISS() {
         dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
         
         delay(30); // ~30fps lock
+        server.handleClient();
     }
 }
 
@@ -749,25 +757,6 @@ void setup() {
       return;
   }
 
-  // --- START LOCAL WEB SERVER ---
-    server.on("/api/reset", HTTP_POST, []() {
-        Serial.println("[API] Factory reset requested via Wi-Fi!");
-        
-        // 1. Send the success response back to the phone
-        server.send(200, "text/plain", "Resetting panel...");
-        
-        // 2. Delete the saved credentials
-        LittleFS.remove("/config.json");
-        Serial.println("[FS] config.json deleted.");
-        
-        // 3. Give the network a second to transmit the response, then pull the plug
-        delay(1000); 
-        ESP.restart();
-    });
-
-    server.begin();
-    Serial.println("[WEB] HTTP server started on port 80");
-
   // Calculate and print space
   size_t totalBytes = LittleFS.totalBytes();
   size_t usedBytes = LittleFS.usedBytes();
@@ -807,7 +796,7 @@ void setup() {
       Serial.println("\n[WIFI] Failed or no credentials. Entering BLE Provisioning Mode.");
       provisioningMode = true;
       
-NimBLEDevice::init("RGBop-Setup");
+      NimBLEDevice::init("RGBop-Setup");
       NimBLEServer *pServer = NimBLEDevice::createServer();
       
       // Create the Services and Characteristics
@@ -843,10 +832,19 @@ NimBLEDevice::init("RGBop-Setup");
       wifiConnected = true;
       drawDiagnostics();
       delay(1000);
+      // --- START LOCAL WEB SERVER HERE (SAFE!) ---
+      server.on("/api/reset", HTTP_POST, []() {
+          Serial.println("[API] Factory reset requested via Wi-Fi!");
+          server.send(200, "text/plain", "Resetting panel...");
+          LittleFS.remove("/config.json");
+          Serial.println("[FS] config.json deleted.");
+          delay(1000); 
+          ESP.restart();
+      });
+      server.begin();
+      Serial.println("[WEB] HTTP server started on port 80");
+      // -------------------------------------------
       
-      // Only configure time if we actually connected
-      configTzTime("EST5EDT,M3.2.0,M11.1.0", "pool.ntp.org", "time.nist.gov");
-      planesWidget.begin(OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, MY_LAT, MY_LNG, 20.0);
   }
 
   // 5. --- CONFIGURE TIME ---
@@ -899,7 +897,7 @@ void drawBluetoothWaiting() {
 
 void loop() 
 {
-    server.handleClient();
+    //server.handleClient();
     // If we are waiting for BLE credentials, handle that and block the rest of the loop
     if (provisioningMode) {
         if (newCredentialsReceived) {
@@ -925,8 +923,18 @@ void loop()
                 Serial.println("Connection Successful!");
                 saveConfig(currentSSID, currentPASS); 
 
+                // --- START LOCAL WEB SERVER HERE (SAFE!) ---
+                server.on("/api/reset", HTTP_POST, []() {
+                     Serial.println("[API] Factory reset requested via Wi-Fi!");
+                     server.send(200, "text/plain", "Resetting panel...");
+                     LittleFS.remove("/config.json");
+                     Serial.println("[FS] config.json deleted.");
+                     delay(1000); 
+                     ESP.restart();
+                });
                 server.begin();
                 Serial.println("[WEB] HTTP server started on port 80");
+                // -------------------------------------------
                 
                 // Flash Green for Success!
                 dma_display->clearScreen();
@@ -934,6 +942,7 @@ void loop()
                 delay(2000);
 
                 NimBLEDevice::deinit(true); 
+                Serial.println("[BLE] Bluetooth stack completely wiped from RAM.");
                 provisioningMode = false;
                 wifiConnected = true;
                 
