@@ -36,6 +36,8 @@ bool newCredentialsReceived = false;
 
 WebServer server(80);
 
+
+
 #define FILESYSTEM LittleFS
 #define FORMAT_LITTLEFS_IF_FAILED true
 
@@ -129,6 +131,87 @@ class CmdCallbacks: public NimBLECharacteristicCallbacks {
         newCredentialsReceived = true;
     }
 };
+
+// --- PREFERENCES & SETTINGS ---
+bool prefShowClock = true;
+bool prefShowDate = true;
+bool prefShowWeather = true;
+bool prefShowISS = true;
+bool prefShowPlanes = true;
+bool prefShowTextBlast = true;
+float prefLat = 34.16;   // Defaulting nearby for initial boot
+float prefLng = -84.80;  
+String prefOsUser = "";
+String prefOsPass = "";
+
+// --- WEB SERVER ROUTES ---
+void setupWebRoutes() {
+    // 1. Factory Reset
+    server.on("/api/reset", HTTP_POST, []() {
+        Serial.println("[API] Factory reset requested!");
+        server.send(200, "text/plain", "Resetting panel...");
+        LittleFS.remove("/config.json");
+        delay(1000); 
+        ESP.restart();
+    });
+
+    // 2. Get Current Settings
+    server.on("/api/settings", HTTP_GET, []() {
+        JsonDocument doc;
+        doc["clock"] = prefShowClock;
+        doc["date"] = prefShowDate;
+        doc["weather"] = prefShowWeather;
+        doc["iss"] = prefShowISS;
+        doc["planes"] = prefShowPlanes;
+        doc["textblast"] = prefShowTextBlast;
+        doc["lat"] = prefLat;
+        doc["lng"] = prefLng;
+        doc["osUser"] = prefOsUser;
+        doc["osPass"] = prefOsPass;
+        
+        String response;
+        serializeJson(doc, response);
+        server.send(200, "application/json", response);
+    });
+
+    // 3. Save New Settings
+    server.on("/api/settings", HTTP_POST, []() {
+        if (!server.hasArg("plain")) {
+            server.send(400, "text/plain", "No payload");
+            return;
+        }
+        
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, server.arg("plain"));
+        if (error) {
+            server.send(400, "text/plain", "Invalid JSON");
+            return;
+        }
+
+        if (doc.containsKey("clock")) prefShowClock = doc["clock"];
+        if (doc.containsKey("date")) prefShowDate = doc["date"];
+        if (doc.containsKey("weather")) prefShowWeather = doc["weather"];
+        if (doc.containsKey("iss")) prefShowISS = doc["iss"];
+        if (doc.containsKey("planes")) prefShowPlanes = doc["planes"];
+        if (doc.containsKey("textblast")) prefShowTextBlast = doc["textblast"];
+        if (doc.containsKey("lat")) prefLat = doc["lat"];
+        if (doc.containsKey("lng")) prefLng = doc["lng"];
+        if (doc.containsKey("osUser")) prefOsUser = doc["osUser"].as<String>();
+        if (doc.containsKey("osPass")) prefOsPass = doc["osPass"].as<String>();
+
+        // Call the save function using the new globals
+        saveConfig(); 
+
+        // Live-update any widgets that rely on these keys/location
+        planesWidget.begin(prefOsUser, prefOsPass, prefLat, prefLng, 20.0);
+
+        server.send(200, "application/json", "{\"status\":\"success\"}");
+        Serial.println("[API] Settings updated and saved!");
+    });
+
+    server.begin();
+    Serial.println("[WEB] HTTP server and API routes started on port 80");
+}
 
 // Draw a line of image directly on the LED Matrix
 void GIFDraw(GIFDRAW *pDraw)
@@ -631,19 +714,42 @@ bool loadConfig() {
     currentSSID = doc["ssid"] | "";
     currentPASS = doc["password"] | "";
     
+    // Load preferences (with safe fallbacks if they don't exist yet)
+    prefShowClock = doc["clock"] | true;
+    prefShowDate = doc["date"] | true;
+    prefShowWeather = doc["weather"] | true;
+    prefShowISS = doc["iss"] | true;
+    prefShowPlanes = doc["planes"] | true;
+    prefShowTextBlast = doc["textblast"] | true;
+    prefLat = doc["lat"] | 34.16;
+    prefLng = doc["lng"] | -84.80;
+    prefOsUser = doc["osUser"] | "";
+    prefOsPass = doc["osPass"] | "";
+    
     return (currentSSID.length() > 0);
 }
 
-void saveConfig(String ssid, String pass) {
+void saveConfig() {
     JsonDocument doc;
-    doc["ssid"] = ssid;
-    doc["password"] = pass;
+    doc["ssid"] = currentSSID;
+    doc["password"] = currentPASS;
+    
+    doc["clock"] = prefShowClock;
+    doc["date"] = prefShowDate;
+    doc["weather"] = prefShowWeather;
+    doc["iss"] = prefShowISS;
+    doc["planes"] = prefShowPlanes;
+    doc["textblast"] = prefShowTextBlast;
+    doc["lat"] = prefLat;
+    doc["lng"] = prefLng;
+    doc["osUser"] = prefOsUser;
+    doc["osPass"] = prefOsPass;
 
     File file = FILESYSTEM.open("/config.json", "w");
     if (file) {
         serializeJson(doc, file);
         file.close();
-        Serial.println("Credentials saved to LittleFS.");
+        Serial.println("[FS] Full configuration saved to LittleFS.");
     }
 }
 
@@ -833,17 +939,8 @@ void setup() {
       wifiConnected = true;
       drawDiagnostics();
       delay(1000);
-      // --- START LOCAL WEB SERVER HERE (SAFE!) ---
-      server.on("/api/reset", HTTP_POST, []() {
-          Serial.println("[API] Factory reset requested via Wi-Fi!");
-          server.send(200, "text/plain", "Resetting panel...");
-          LittleFS.remove("/config.json");
-          Serial.println("[FS] config.json deleted.");
-          delay(1000); 
-          ESP.restart();
-      });
-      server.begin();
-      Serial.println("[WEB] HTTP server started on port 80");
+      
+      setupWebRoutes();
       // -------------------------------------------
       if (MDNS.begin("rgbop")) {
           Serial.println("[mDNS] Responder started. I am now rgbop.local!");
@@ -855,7 +952,8 @@ void setup() {
   configTzTime("EST5EDT,M3.2.0,M11.1.0", "pool.ntp.org", "time.nist.gov");
   Serial.println("Time configured via NTP.");
   
-  planesWidget.begin(OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, MY_LAT, MY_LNG, 20.0);
+  //planesWidget.begin(OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, MY_LAT, MY_LNG, 20.0);
+  planesWidget.begin(prefOsUser, prefOsPass, prefLat, prefLng, 20.0);
 
   // 7. --- START GIF ENGINE ---  
   gif.begin(LITTLE_ENDIAN_PIXELS);
@@ -925,19 +1023,10 @@ void loop()
             
             if (WiFi.status() == WL_CONNECTED) {
                 Serial.println("Connection Successful!");
-                saveConfig(currentSSID, currentPASS); 
+                saveConfig(); 
 
-                // --- START LOCAL WEB SERVER HERE (SAFE!) ---
-                server.on("/api/reset", HTTP_POST, []() {
-                     Serial.println("[API] Factory reset requested via Wi-Fi!");
-                     server.send(200, "text/plain", "Resetting panel...");
-                     LittleFS.remove("/config.json");
-                     Serial.println("[FS] config.json deleted.");
-                     delay(1000); 
-                     ESP.restart();
-                });
-                server.begin();
-                Serial.println("[WEB] HTTP server started on port 80");
+                setupWebRoutes();
+
                 // -------------------------------------------
                 if (MDNS.begin("rgbop")) {
                     Serial.println("[mDNS] Responder started. I am now rgbop.local!");
@@ -991,19 +1080,21 @@ void loop()
                 
                 ShowGIF(filePath);   
                 
-                // --- Alternate the Clocks ---
-                if (showMarioNext) {
-                    showClock();
-                } else {
-                    showMorphClock();
+                // --- Alternate the Clocks --- 
+                if (prefShowClock) {
+                    if (showMarioNext) {
+                        showClock();
+                    } else {
+                        showMorphClock();
+                    }
+                    showMarioNext = !showMarioNext; 
                 }
-                showMarioNext = !showMarioNext; // Flip the flag for next time
                 
-                showDateProgress();  
-                showTextBlast();
-                showWeather();      
-                showISS();
-                showPlanes();
+                if (prefShowDate) showDateProgress();  
+                if (prefShowTextBlast) showTextBlast();
+                if (prefShowWeather) showWeather();      
+                if (prefShowISS) showISS();
+                if (prefShowPlanes) showPlanes();
             }
             gifFile.close();
             gifFile = root.openNextFile();
