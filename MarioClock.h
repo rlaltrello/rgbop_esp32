@@ -6,6 +6,8 @@
 
 // Tell this file that dma_display exists in your main sketch
 extern MatrixPanel_I2S_DMA *dma_display;
+extern bool currentIsNight;
+extern uint16_t applyNightVision(uint16_t color);
 
 namespace MarioClock {
 
@@ -251,12 +253,11 @@ namespace MarioClock {
         clockCanvas.fillRect(x, y + 4, 24, 4, M_WHITE);
     }
 
-    // --- Main Update and Render Loop ---
+// --- Main Update and Render Loop ---
     void drawClockFrame(int hours, int minutes) {
         unsigned long now = millis();
-        String hh = (hours < 10 ? "0" : "") + String(hours);
-        String mm = (minutes < 10 ? "0" : "") + String(minutes);
 
+        // 1. Check for minute changes (Keep this outside the timer to catch instant changes)
         if (lastMinute != -1 && lastMinute != minutes) {
             if (!mario_isJumping) {
                 mario_isJumping = true;
@@ -266,7 +267,10 @@ namespace MarioClock {
         }
         lastMinute = minutes;
 
+        // 2. ONLY render and calculate math every 50ms (20 FPS)
         if (now - lastFrameTime > 50) {
+            
+            // --- Update Animations ---
             cloud1_x -= 1; if (cloud1_x < -24) cloud1_x = 64;
             cloud2_x -= 1; if (cloud2_x < -24) cloud2_x = 64;
 
@@ -298,35 +302,46 @@ namespace MarioClock {
                     minBlock_offset = 0; minBlock_isHit = false;
                 }
             }
+
+            // --- Render the Canvas ---
+            clockCanvas.fillScreen(SKY_COLOR);
+
+            drawClouds(cloud1_x, cloud1_y);
+            drawClouds(cloud2_x, cloud2_y);
+            
+            for (int gx = 0; gx < 64; gx += 8) {
+                drawSprite(gx, 56, 8, 8, GROUND);
+            }
+
+            drawSprite(43, 47, 21, 9, BUSH);
+            drawSprite(hourBlock_x, hourBlock_startY + hourBlock_offset, 19, 19, BLOCK);
+            drawSprite(minBlock_x, minBlock_startY + minBlock_offset, 19, 19, BLOCK);
+            
+            // Note: Moving these Strings here saves your heap from fragmenting!
+            String hh = (hours < 10 ? "0" : "") + String(hours);
+            String mm = (minutes < 10 ? "0" : "") + String(minutes);
+            drawMarioText(hh, hourBlock_x + 2, hourBlock_startY + hourBlock_offset + 12, M_BLACK);
+            drawMarioText(mm, minBlock_x + 2, minBlock_startY + minBlock_offset + 12, M_BLACK);
+
+            if (mario_isJumping) {
+                drawSprite(mario_x, mario_y, 17, 16, MARIO_JUMP);
+            } else {
+                drawSprite(mario_x, mario_y, 13, 16, MARIO_IDLE);
+            }
+
+            // --- Apply Night Vision ---
+            if (currentIsNight) {
+                uint16_t* buf = clockCanvas.getBuffer();
+                for (int i = 0; i < 64 * 64; i++) {
+                    buf[i] = applyNightVision(buf[i]);
+                }
+            }
+            
+            // --- Push to Matrix ---
+            dma_display->drawRGBBitmap(0, 0, clockCanvas.getBuffer(), 64, 64);
+
             lastFrameTime = now;
         }
-
-        // CLEAR CANVAS INSTEAD OF DMA_DISPLAY
-        clockCanvas.fillScreen(SKY_COLOR);
-
-        drawClouds(cloud1_x, cloud1_y);
-        drawClouds(cloud2_x, cloud2_y);
-        
-        for (int gx = 0; gx < 64; gx += 8) {
-            drawSprite(gx, 56, 8, 8, GROUND);
-        }
-
-        drawSprite(43, 47, 21, 9, BUSH);
-        drawSprite(hourBlock_x, hourBlock_startY + hourBlock_offset, 19, 19, BLOCK);
-        drawSprite(minBlock_x, minBlock_startY + minBlock_offset, 19, 19, BLOCK);
-        drawMarioText(hh, hourBlock_x + 2, hourBlock_startY + hourBlock_offset + 12, M_BLACK);
-        drawMarioText(mm, minBlock_x + 2, minBlock_startY + minBlock_offset + 12, M_BLACK);
-
-        if (mario_isJumping) {
-            drawSprite(mario_x, mario_y, 17, 16, MARIO_JUMP);
-        } else {
-            drawSprite(mario_x, mario_y, 13, 16, MARIO_IDLE);
-        }
-
-        // ==============================================================
-        // THE FINAL STEP: PUSH THE CANVAS TO THE LIVE SCREEN INSTANTLY
-        // ==============================================================
-        dma_display->drawRGBBitmap(0, 0, clockCanvas.getBuffer(), 64, 64);
     }
 }
 

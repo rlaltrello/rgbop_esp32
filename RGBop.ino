@@ -35,6 +35,7 @@ String currentSSID = "";
 String currentPASS = "";
 bool provisioningMode = false; 
 bool newCredentialsReceived = false;
+bool currentIsNight = false;
 
 WebServer server(80);
 File fsUploadFile;
@@ -152,6 +153,10 @@ float prefLat = 34.16;   // Defaulting nearby for initial boot
 float prefLng = -84.80;  
 String prefOsUser = "";
 String prefOsPass = "";
+int prefBrightness = 128;
+bool prefNightMode = false;
+int prefNightStart = 22; // 10 PM
+int prefNightEnd = 6;    // 6 AM
 
 // --- WEB SERVER ROUTES ---
 void setupWebRoutes() {
@@ -178,6 +183,10 @@ void setupWebRoutes() {
         doc["lng"] = prefLng;
         doc["osUser"] = prefOsUser;
         doc["osPass"] = prefOsPass;
+        doc["brightness"] = prefBrightness;
+        doc["nightMode"] = prefNightMode;
+        doc["nightStart"] = prefNightStart;
+        doc["nightEnd"] = prefNightEnd;
         
         String response;
         serializeJson(doc, response);
@@ -209,6 +218,12 @@ void setupWebRoutes() {
         if (doc.containsKey("lng")) prefLng = doc["lng"];
         if (doc.containsKey("osUser")) prefOsUser = doc["osUser"].as<String>();
         if (doc.containsKey("osPass")) prefOsPass = doc["osPass"].as<String>();
+        if (doc.containsKey("brightness")) prefBrightness = doc["brightness"];
+        if (doc.containsKey("nightMode")) prefNightMode = doc["nightMode"];
+        if (doc.containsKey("nightStart")) prefNightStart = doc["nightStart"];
+        if (doc.containsKey("nightEnd")) prefNightEnd = doc["nightEnd"];
+        updateBrightness();
+        
 
         // Call the save function using the new globals
         saveConfig(); 
@@ -380,7 +395,7 @@ void GIFDraw(GIFDRAW *pDraw)
         if (iCount) // any opaque pixels?
         {
           for(int xOffset = 0; xOffset < iCount; xOffset++ ){
-            dma_display->drawPixel(x + xOffset, y, usTemp[xOffset]); // 565 Color Format
+            dma_display->drawPixel(x + xOffset, y, applyNightVision(usTemp[xOffset])); // 565 Color Format
           }
           x += iCount;
           iCount = 0;
@@ -408,7 +423,7 @@ void GIFDraw(GIFDRAW *pDraw)
       // Translate the 8-bit pixels through the RGB565 palette (already byte reversed)
       for (x=0; x<pDraw->iWidth; x++)
       {
-        dma_display->drawPixel(x, y, usPalette[*s++]); // color 565
+        dma_display->drawPixel(x, y, applyNightVision(usPalette[*s++])); // color 565
       }
     }
 } /* GIFDraw() */
@@ -617,6 +632,39 @@ public:
         weatherCanvas.drawPixel(x, y, color565);
     }
 };
+
+uint16_t applyNightVision(uint16_t color) {
+    if (!currentIsNight || color == 0) return color;
+    
+    // Break out the RGB565 16-bit format
+    uint8_t r = (color >> 11) & 0x1F; // 5 bits (0-31)
+    uint8_t g = (color >> 5) & 0x3F;  // 6 bits (0-63)
+    uint8_t b = color & 0x1F;         // 5 bits (0-31)
+    
+    // Average them to get grayscale luminance (normalize G to 5 bits first)
+    uint8_t lum = (r + (g >> 1) + b) / 3;
+    
+    // Divide by 2 to severely dim the remaining light
+    lum = lum >> 1;
+    
+    // Repack purely into the Red channel and return
+    return ((uint16_t)lum << 11);
+}
+
+void pushCanvasToMatrix() {
+    if (currentIsNight) {
+        // Safely draw pixel-by-pixel so we don't permanently corrupt static widgets
+        uint16_t* src = weatherCanvas.getBuffer();
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                dma_display->drawPixel(x, y, applyNightVision(src[y * 64 + x]));
+            }
+        }
+    } else {
+        dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
+    }
+}
+
 // Instantiate the wrappers globally
 MatrixFont myFont;
 MatrixGraphics myGraphics;
@@ -683,7 +731,7 @@ void showWeather() {
         weatherWidget.draw(&myGraphics, &myFont, 64, 64, millis());
         
         // 2. Smash the finished picture onto the live LED matrix!
-        dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
+        pushCanvasToMatrix();
         
         delay(30); // ~30fps frame rate lock
         server.handleClient();
@@ -696,7 +744,7 @@ void showLogo() {
     // Run the animation for 10 seconds
     while (millis() - logoStartTime < 10000) {
         logoWidget.draw(&myGraphics, &myFont, 64, 64);
-        dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
+        pushCanvasToMatrix();
         delay(30); // ~30fps frame rate lock
         server.handleClient();
     }
@@ -756,7 +804,7 @@ void showMorphClock() {
         morphWidget.draw(&myGraphics, &myFont, 64, 64, millis());
         
         // 2. Push to DMA matrix
-        dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
+        pushCanvasToMatrix();
         
         delay(30); // ~30fps frame rate lock
         server.handleClient();
@@ -774,7 +822,7 @@ void showDateProgress() {
         dateWidget.draw(&myGraphics, &myFont, 64, 64, millis());
         
         // 2. Smash the finished picture onto the live LED matrix
-        dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
+        pushCanvasToMatrix();
         
         delay(30); // ~30fps frame rate lock
         server.handleClient();
@@ -794,7 +842,7 @@ void showTextBlast() {
         // The draw function will return TRUE when the requested cycles are finished
         isDone = textBlastWidget.draw(&myGraphics, &myFont, &myMarioFont, 64, 64, millis());
         
-        dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
+        pushCanvasToMatrix();
         
         delay(30);
         server.handleClient();
@@ -805,7 +853,7 @@ void showPlanes() {
     unsigned long planesStartTime = millis();
     while (millis() - planesStartTime < 10000) { // Show for 10 seconds
         planesWidget.draw(&myGraphics, &myFont, 64, 64, millis());
-        dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
+        pushCanvasToMatrix();
         delay(30);
         server.handleClient();
     }
@@ -821,7 +869,7 @@ void showISS() {
         issWidget.draw();
         
         // 2. Smash onto the live matrix
-        dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
+        pushCanvasToMatrix();
         
         delay(30); // ~30fps lock
         server.handleClient();
@@ -853,6 +901,10 @@ bool loadConfig() {
     prefLng = doc["lng"] | -84.80;
     prefOsUser = doc["osUser"] | "";
     prefOsPass = doc["osPass"] | "";
+    prefBrightness = doc["brightness"] | 128;
+    prefNightMode = doc["nightMode"] | false;
+    prefNightStart = doc["nightStart"] | 22;
+    prefNightEnd = doc["nightEnd"] | 6;
     
     return (currentSSID.length() > 0);
 }
@@ -873,6 +925,10 @@ void saveConfig() {
     doc["lng"] = prefLng;
     doc["osUser"] = prefOsUser;
     doc["osPass"] = prefOsPass;
+    doc["brightness"] = prefBrightness;
+    doc["nightMode"] = prefNightMode;
+    doc["nightStart"] = prefNightStart;
+    doc["nightEnd"] = prefNightEnd;
 
     File file = FILESYSTEM.open("/config.json", "w");
     if (file) {
@@ -882,12 +938,42 @@ void saveConfig() {
     }
 }
 
+void updateBrightness() {
+    if (!prefNightMode) {
+        currentIsNight = false;
+        dma_display->setBrightness8(prefBrightness);
+        return;
+    }
+    
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        int currentHour = timeinfo.tm_hour;
+        bool isNight = false;
+        
+        if (prefNightStart < prefNightEnd) {
+            isNight = (currentHour >= prefNightStart && currentHour < prefNightEnd);
+        } else {
+            isNight = (currentHour >= prefNightStart || currentHour < prefNightEnd);
+        }
+        
+        if (isNight) {
+            currentIsNight = true;          // <-- Update flag
+            dma_display->setBrightness8(2); // Keep the hardware somewhat dim
+        } else {
+            currentIsNight = false;         // <-- Update flag
+            dma_display->setBrightness8(prefBrightness);
+        }
+    }
+}
+
 void maintainNetwork() {
     unsigned long now = millis();
 
     // 1. WiFi Watchdog
     if (now - lastWatchdogCheck > 3000) {
         lastWatchdogCheck = now;
+
+        updateBrightness();
 
         if (WiFi.status() != WL_CONNECTED) {
             if (wifiConnected) {
@@ -1012,7 +1098,7 @@ void setup() {
   if (loadConfig()) {
       Serial.println("Loaded credentials from config.json. Attempting connection...");
       WiFi.begin(currentSSID.c_str(), currentPASS.c_str());
-      
+      WiFi.setSleep(false);
       // Wait up to 10 seconds for a connection
       int retries = 0;
       while (WiFi.status() != WL_CONNECTED && retries < 20) {
