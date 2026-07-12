@@ -13,15 +13,19 @@
 #include "isslocation.h"
 #include "planes.h"
 #include <WebServer.h>
+#include "gifEngine.h"
+#include "webApi.h"
+#include "logo.h"
+#include "widgetEngine.h"
+#include "configEngine.h"
 
 #define SPIRAM_DMA_BUFFER 1
 #include "FS.h"
 #include <LittleFS.h>
-#include <AnimatedGIF.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 #include <NimBLEDevice.h>
-#include "logo.h"
+
 
 
 // --- RGBop BLE UUIDs ---
@@ -35,14 +39,33 @@ String currentSSID = "";
 String currentPASS = "";
 bool provisioningMode = false; 
 bool newCredentialsReceived = false;
+
+bool prefShowGifs = true;
+bool prefShowClock = true;
+bool prefShowDate = true;
+bool prefShowWeather = true;
+bool prefShowISS = true;
+bool prefShowPlanes = true;
+bool prefShowTextBlast = true;
+
+float prefLat = 34.16;
+float prefLng = -84.80;
+
+String prefOsUser = "";
+String prefOsPass = "";
+
+int prefBrightness = 128;
+bool prefNightMode = false;
+int prefNightStart = 22;
+int prefNightEnd = 6;
+
 bool currentIsNight = false;
 
 WebServer server(80);
 File fsUploadFile;
-
 String gifDir = "/gifs"; // play all GIFs in this directory on the SD card
 char filePath[256] = { 0 };
-File root, gifFile;
+File root;
 
 
 
@@ -113,9 +136,9 @@ uint16_t myRED = dma_display->color565(255, 0, 0);
 uint16_t myGREEN = dma_display->color565(0, 255, 0);
 uint16_t myBLUE = dma_display->color565(0, 0, 255);
 
-AnimatedGIF gif;
+//AnimatedGIF gif;
 File f;
-int x_offset, y_offset;
+//int x_offset, y_offset;
 
 class SSIDCallbacks: public NimBLECharacteristicCallbacks {
     // Notice the new NimBLEConnInfo parameter and the 'override' keyword
@@ -141,372 +164,11 @@ class CmdCallbacks: public NimBLECharacteristicCallbacks {
     }
 };
 
-// --- PREFERENCES & SETTINGS ---
-bool prefShowGifs = true;
-bool prefShowClock = true;
-bool prefShowDate = true;
-bool prefShowWeather = true;
-bool prefShowISS = true;
-bool prefShowPlanes = true;
-bool prefShowTextBlast = true;
-float prefLat = 34.16;   // Defaulting nearby for initial boot
-float prefLng = -84.80;  
-String prefOsUser = "";
-String prefOsPass = "";
-int prefBrightness = 128;
-bool prefNightMode = false;
-int prefNightStart = 22; // 10 PM
-int prefNightEnd = 6;    // 6 AM
 
-// --- WEB SERVER ROUTES ---
-void setupWebRoutes() {
-    // 1. Factory Reset
-    server.on("/api/reset", HTTP_POST, []() {
-        Serial.println("[API] Factory reset requested!");
-        server.send(200, "text/plain", "Resetting panel...");
-        LittleFS.remove("/config.json");
-        delay(1000); 
-        ESP.restart();
-    });
-
-    // 2. Get Current Settings
-    server.on("/api/settings", HTTP_GET, []() {
-        JsonDocument doc;
-        doc["gifs"] = prefShowGifs;
-        doc["clock"] = prefShowClock;
-        doc["date"] = prefShowDate;
-        doc["weather"] = prefShowWeather;
-        doc["iss"] = prefShowISS;
-        doc["planes"] = prefShowPlanes;
-        doc["textblast"] = prefShowTextBlast;
-        doc["lat"] = prefLat;
-        doc["lng"] = prefLng;
-        doc["osUser"] = prefOsUser;
-        doc["osPass"] = prefOsPass;
-        doc["brightness"] = prefBrightness;
-        doc["nightMode"] = prefNightMode;
-        doc["nightStart"] = prefNightStart;
-        doc["nightEnd"] = prefNightEnd;
-        
-        String response;
-        serializeJson(doc, response);
-        server.send(200, "application/json", response);
-    });
-
-    // 3. Save New Settings
-    server.on("/api/settings", HTTP_POST, []() {
-        if (!server.hasArg("plain")) {
-            server.send(400, "text/plain", "No payload");
-            return;
-        }
-        
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, server.arg("plain"));
-        if (error) {
-            server.send(400, "text/plain", "Invalid JSON");
-            return;
-        }
-
-        if (doc.containsKey("gifs")) prefShowGifs = doc["gifs"];
-        if (doc.containsKey("clock")) prefShowClock = doc["clock"];
-        if (doc.containsKey("date")) prefShowDate = doc["date"];
-        if (doc.containsKey("weather")) prefShowWeather = doc["weather"];
-        if (doc.containsKey("iss")) prefShowISS = doc["iss"];
-        if (doc.containsKey("planes")) prefShowPlanes = doc["planes"];
-        if (doc.containsKey("textblast")) prefShowTextBlast = doc["textblast"];
-        if (doc.containsKey("lat")) prefLat = doc["lat"];
-        if (doc.containsKey("lng")) prefLng = doc["lng"];
-        if (doc.containsKey("osUser")) prefOsUser = doc["osUser"].as<String>();
-        if (doc.containsKey("osPass")) prefOsPass = doc["osPass"].as<String>();
-        if (doc.containsKey("brightness")) prefBrightness = doc["brightness"];
-        if (doc.containsKey("nightMode")) prefNightMode = doc["nightMode"];
-        if (doc.containsKey("nightStart")) prefNightStart = doc["nightStart"];
-        if (doc.containsKey("nightEnd")) prefNightEnd = doc["nightEnd"];
-        updateBrightness();
-        
-
-        // Call the save function using the new globals
-        saveConfig(); 
-
-        // Live-update any widgets that rely on these keys/location
-        planesWidget.begin(prefOsUser, prefOsPass, prefLat, prefLng, 20.0);
-
-        server.send(200, "application/json", "{\"status\":\"success\"}");
-        Serial.println("[API] Settings updated and saved!");
-    });
-    
-    // 4. List all GIFs
-    server.on("/api/gifs", HTTP_GET, []() {
-        File root = FILESYSTEM.open(gifDir);
-        if (!root) {
-            server.send(500, "application/json", "{\"error\":\"Failed to open directory\"}");
-            return;
-        }
-
-        JsonDocument doc;
-        JsonArray array = doc["gifs"].to<JsonArray>();
-        
-        File file = root.openNextFile();
-        while (file) {
-            if (!file.isDirectory()) {
-                String fileName = String(file.name());
-                JsonObject gifObj = array.add<JsonObject>();
-                gifObj["name"] = String(file.name());
-                gifObj["size"] = file.size();
-                gifObj["enabled"] = !fileName.startsWith("_");
-            }
-            file = root.openNextFile();
-        }
-        
-        String response;
-        serializeJson(doc, response);
-        server.send(200, "application/json", response);
-    });
-
-    // 5. Delete a GIF
-    server.on("/api/gifs/delete", HTTP_POST, []() {
-        if (!server.hasArg("name")) {
-            server.send(400, "application/json", "{\"error\":\"Missing filename\"}");
-            return;
-        }
-        
-        String filename = server.arg("name");
-        // Ensure the path is strictly within the /gifs directory
-        String path = gifDir + "/" + filename;
-        
-        if (FILESYSTEM.remove(path)) {
-            Serial.printf("[FS] Deleted: %s\n", path.c_str());
-            server.send(200, "application/json", "{\"status\":\"success\"}");
-        } else {
-            server.send(500, "application/json", "{\"error\":\"Failed to delete file\"}");
-        }
-    });
-
-    server.on("/api/gifs/toggle", HTTP_POST, []() {
-        if (!server.hasArg("name") || !server.hasArg("enabled")) {
-            server.send(400, "application/json", "{\"error\":\"Missing args\"}");
-            return;
-        }
-        
-        String oldName = server.arg("name");
-        bool enable = (server.arg("enabled") == "true");
-        String newName = oldName;
-        
-        if (enable && oldName.startsWith("_")) {
-            newName = oldName.substring(1); // Remove the underscore
-        } else if (!enable && !oldName.startsWith("_")) {
-            newName = "_" + oldName; // Add the underscore
-        }
-
-        if (oldName != newName) {
-            FILESYSTEM.rename(gifDir + "/" + oldName, gifDir + "/" + newName);
-            Serial.printf("[FS] Renamed %s to %s\n", oldName.c_str(), newName.c_str());
-        }
-        
-        server.send(200, "application/json", "{\"status\":\"success\"}");
-    });
-
-    // 6. Upload a GIF (Requires a special two-part handler for streaming)
-    server.on("/api/gifs/upload", HTTP_POST, 
-        []() {
-            // Part 1: The final HTTP response sent after the upload finishes
-            server.send(200, "application/json", "{\"status\":\"success\"}");
-        }, 
-        []() {
-            // Part 2: The chunk-by-chunk stream handler
-            HTTPUpload& upload = server.upload();
-            
-            if (upload.status == UPLOAD_FILE_START) {
-                String filename = upload.filename;
-                if (!filename.startsWith("/")) filename = "/" + filename;
-                String path = gifDir + filename;
-                
-                Serial.printf("[Upload] Starting: %s\n", path.c_str());
-                fsUploadFile = FILESYSTEM.open(path, "w");
-                
-            } else if (upload.status == UPLOAD_FILE_WRITE) {
-                if (fsUploadFile) {
-                    fsUploadFile.write(upload.buf, upload.currentSize);
-                }
-            } else if (upload.status == UPLOAD_FILE_END) {
-                if (fsUploadFile) {
-                    fsUploadFile.close();
-                    Serial.printf("[Upload] Finished: %s, Size: %u bytes\n", upload.filename.c_str(), upload.totalSize);
-                }
-            }
-        }
-    );
-    // 7. Serve the actual GIF files so the app can preview them
-    server.serveStatic("/gifs", FILESYSTEM, "/gifs");
-
-    server.begin();
-    Serial.println("[WEB] HTTP server and API routes started on port 80");
-}
-
-// Draw a line of image directly on the LED Matrix
-void GIFDraw(GIFDRAW *pDraw)
-{
-    uint8_t *s;
-    uint16_t *d, *usPalette, usTemp[320];
-    int x, y, iWidth;
-
-  iWidth = pDraw->iWidth;
-  if (iWidth > dma_display->width())
-      iWidth = dma_display->width();
-
-    usPalette = pDraw->pPalette;
-    y = pDraw->iY + pDraw->y; // current line
-    
-    s = pDraw->pPixels;
-    if (pDraw->ucDisposalMethod == 2) // restore to background color
-    {
-      for (x=0; x<iWidth; x++)
-      {
-        if (s[x] == pDraw->ucTransparent)
-           s[x] = pDraw->ucBackground;
-      }
-      pDraw->ucHasTransparency = 0;
-    }
-    // Apply the new pixels to the main image
-    if (pDraw->ucHasTransparency) // if transparency used
-    {
-      uint8_t *pEnd, c, ucTransparent = pDraw->ucTransparent;
-      int x, iCount;
-      pEnd = s + pDraw->iWidth;
-      x = 0;
-      iCount = 0; // count non-transparent pixels
-      while(x < pDraw->iWidth)
-      {
-        c = ucTransparent-1;
-        d = usTemp;
-        while (c != ucTransparent && s < pEnd)
-        {
-          c = *s++;
-          if (c == ucTransparent) // done, stop
-          {
-            s--; // back up to treat it like transparent
-          }
-          else // opaque
-          {
-             *d++ = usPalette[c];
-             iCount++;
-          }
-        } // while looking for opaque pixels
-        if (iCount) // any opaque pixels?
-        {
-          for(int xOffset = 0; xOffset < iCount; xOffset++ ){
-            dma_display->drawPixel(x + xOffset, y, applyNightVision(usTemp[xOffset])); // 565 Color Format
-          }
-          x += iCount;
-          iCount = 0;
-        }
-        // no, look for a run of transparent pixels
-        c = ucTransparent;
-        while (c == ucTransparent && s < pEnd)
-        {
-          c = *s++;
-          if (c == ucTransparent)
-             iCount++;
-          else
-             s--; 
-        }
-        if (iCount)
-        {
-          x += iCount; // skip these
-          iCount = 0;
-        }
-      }
-    }
-    else // does not have transparency
-    {
-      s = pDraw->pPixels;
-      // Translate the 8-bit pixels through the RGB565 palette (already byte reversed)
-      for (x=0; x<pDraw->iWidth; x++)
-      {
-        dma_display->drawPixel(x, y, applyNightVision(usPalette[*s++])); // color 565
-      }
-    }
-} /* GIFDraw() */
-
-
-void * GIFOpenFile(const char *fname, int32_t *pSize)
-{
-  Serial.print("Playing gif: ");
-  Serial.println(fname);
-  f = FILESYSTEM.open(fname);
-  if (f)
-  {
-    *pSize = f.size();
-    return (void *)&f;
-  }
-  return NULL;
-} /* GIFOpenFile() */
-
-void GIFCloseFile(void *pHandle)
-{
-  File *f = static_cast<File *>(pHandle);
-  if (f != NULL)
-     f->close();
-} /* GIFCloseFile() */
-
-int32_t GIFReadFile(GIFFILE *pFile, uint8_t *pBuf, int32_t iLen)
-{
-    int32_t iBytesRead;
-    iBytesRead = iLen;
-    File *f = static_cast<File *>(pFile->fHandle);
-    // Note: If you read a file all the way to the last byte, seek() stops working
-    if ((pFile->iSize - pFile->iPos) < iLen)
-       iBytesRead = pFile->iSize - pFile->iPos - 1; // <-- ugly work-around
-    if (iBytesRead <= 0)
-       return 0;
-    iBytesRead = (int32_t)f->read(pBuf, iBytesRead);
-    pFile->iPos = f->position();
-    return iBytesRead;
-} /* GIFReadFile() */
-
-int32_t GIFSeekFile(GIFFILE *pFile, int32_t iPosition)
-{ 
-  int i = micros();
-  File *f = static_cast<File *>(pFile->fHandle);
-  f->seek(iPosition);
-  pFile->iPos = (int32_t)f->position();
-  i = micros() - i;
-//  Serial.printf("Seek time = %d us\n", i);
-  return pFile->iPos;
-} /* GIFSeekFile() */
 
 unsigned long start_tick = 0;
 
-void ShowGIF(char *name)
-{
-  start_tick = millis();
-   
-  if (gif.open(name, GIFOpenFile, GIFCloseFile, GIFReadFile, GIFSeekFile, GIFDraw))
-  {
-    x_offset = (dma_display->width() - gif.getCanvasWidth())/2;
-    if (x_offset < 0) x_offset = 0;
-    y_offset = (dma_display->height() - gif.getCanvasHeight())/2;
-    if (y_offset < 0) y_offset = 0;
-    Serial.printf("Successfully opened GIF; Canvas size = %d x %d\n", gif.getCanvasWidth(), gif.getCanvasHeight());
-    Serial.flush();
-    
-    // Loop continuously until 10,000 milliseconds (10 seconds) have passed
-    while ((millis() - start_tick) < 10000) 
-    {      
-      int frameResult = gif.playFrame(true, NULL); // Play the next frame
-      dma_display->flipDMABuffer();
-      server.handleClient();
-      if (frameResult == 0) 
-      { 
-        // playFrame returned 0, meaning it hit the end of the GIF
-        gif.reset(); // Rewind the GIF back to the first frame to loop it
-      }
-    }
-    
-    gif.close();
-  }
 
-} /* ShowGIF() */
 
 // ------------------------------------------------------------
 // Diagnostic Pixel Drawing
@@ -527,147 +189,8 @@ void drawDiagnostics() {
 // Create an invisible 64x64 16-bit canvas
 GFXcanvas16 weatherCanvas(64, 64);
 
-// --- FONT WRAPPER ---
-class MatrixFont : public Font {
-public:
-    // 1. STANDARD VERSION (Satisfies weather.h)
-    void drawText(GraphicsContext* ctx, const std::string& text, int x, int y) override {
-        weatherCanvas.setTextWrap(false); 
-        weatherCanvas.setTextSize(1);
-        weatherCanvas.setCursor(x, y - 7); 
-        weatherCanvas.setTextColor(0xFFFF); 
-        weatherCanvas.print(text.c_str());
-    }
-    
-    int getTextWidth(const std::string& text) override {
-        return text.length() * 6; 
-    }
-
-    // 2. SCALED VERSION (Used by textblast.h)
-    // Notice there is no 'override' keyword here because this is a new, custom function!
-    void drawText(GraphicsContext* ctx, const std::string& text, int x, int y, int scale) {
-        weatherCanvas.setTextWrap(false); 
-        weatherCanvas.setTextSize(scale);   // Native Adafruit scaling
-        weatherCanvas.setCursor(x, y - 7); 
-        weatherCanvas.setTextColor(0xFFFF); 
-        weatherCanvas.print(text.c_str());
-        weatherCanvas.setTextSize(1);       // Reset to normal 
-    }
-    
-    int getTextWidth(const std::string& text, int scale) {
-        return text.length() * 6 * scale; 
-    }
-};
-
-// --- GRAPHICS WRAPPER ---
-class MatrixGraphics : public GraphicsContext {
-private:
-    uint16_t fillColor = 0;
-    uint16_t strokeColor = 0;
-    float curX = 0, curY = 0;
-
-    // Helper to convert 0xRRGGBB to RGB565 locally
-    uint16_t hexTo565(uint32_t color) {
-        uint8_t r = (color >> 16) & 0xFF;
-        uint8_t g = (color >> 8) & 0xFF;
-        uint8_t b = color & 0xFF;
-        return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
-    }
-
-public:
-    void setFillStyle(uint32_t color) override { fillColor = hexTo565(color); }
-    void setStrokeStyle(uint32_t color) override { strokeColor = hexTo565(color); }
-    void setLineWidth(float width) override { }
-    
-    void beginPath() override { }
-    void closePath() override { }
-    
-    void moveTo(float x, float y) override { 
-        curX = x; curY = y; 
-    }
-    
-    void lineTo(float x, float y) override {
-        weatherCanvas.drawLine(curX, curY, x, y, strokeColor);
-        curX = x; curY = y;
-    }
-    
-    void arc(float x, float y, float radius, float startAngle, float endAngle) override {
-        weatherCanvas.fillCircle(x, y, radius, fillColor);
-    }
-    
-    void bezierCurveTo(float cp1x, float cp1y, float cp2x, float cp2y, float x, float y) override {
-        float startX = curX; float startY = curY;
-        for(int i = 1; i <= 10; i++) {
-            float t = i / 10.0f;
-            float u = 1.0f - t;
-            float px = u*u*u*startX + 3*u*u*t*cp1x + 3*u*t*t*cp2x + t*t*t*x;
-            float py = u*u*u*startY + 3*u*u*t*cp1y + 3*u*t*t*cp2y + t*t*t*y;
-            weatherCanvas.drawLine(curX, curY, px, py, strokeColor);
-            curX = px; curY = py;
-        }
-    }
-    
-    void quadraticCurveTo(float cpx, float cpy, float x, float y) override {
-        float startX = curX; float startY = curY;
-        for(int i = 1; i <= 10; i++) {
-            float t = i / 10.0f;
-            float u = 1.0f - t;
-            float px = u*u*startX + 2*u*t*cpx + t*t*x;
-            float py = u*u*startY + 2*u*t*cpy + t*t*y;
-            weatherCanvas.drawLine(curX, curY, px, py, strokeColor);
-            curX = px; curY = py;
-        }
-    }
-    
-    void fill() override { }
-    void stroke() override { }
-    
-    void fillRect(float x, float y, float w, float h) override {
-        weatherCanvas.fillRect(x, y, w, h, fillColor);
-    }
-    
-    void setPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) override {
-        // Direct conversion to 565 for the canvas
-        uint16_t color565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
-        weatherCanvas.drawPixel(x, y, color565);
-    }
-};
-
-uint16_t applyNightVision(uint16_t color) {
-    if (!currentIsNight || color == 0) return color;
-    
-    // Break out the RGB565 16-bit format
-    uint8_t r = (color >> 11) & 0x1F; // 5 bits (0-31)
-    uint8_t g = (color >> 5) & 0x3F;  // 6 bits (0-63)
-    uint8_t b = color & 0x1F;         // 5 bits (0-31)
-    
-    // Average them to get grayscale luminance (normalize G to 5 bits first)
-    uint8_t lum = (r + (g >> 1) + b) / 3;
-    
-    // Divide by 2 to severely dim the remaining light
-    lum = lum >> 1;
-    
-    // Repack purely into the Red channel and return
-    return ((uint16_t)lum << 11);
-}
-
-void pushCanvasToMatrix() {
-    if (currentIsNight) {
-        // Safely draw pixel-by-pixel so we don't permanently corrupt static widgets
-        uint16_t* src = weatherCanvas.getBuffer();
-        for (int y = 0; y < 64; y++) {
-            for (int x = 0; x < 64; x++) {
-                dma_display->drawPixel(x, y, applyNightVision(src[y * 64 + x]));
-            }
-        }
-    } else {
-        dma_display->drawRGBBitmap(0, 0, weatherCanvas.getBuffer(), 64, 64);
-    }
-}
 
 // Instantiate the wrappers globally
-MatrixFont myFont;
-MatrixGraphics myGraphics;
 CustomMarioFont myMarioFont;
 
 bool fetchWeatherData() {
@@ -721,250 +244,19 @@ bool fetchWeatherData() {
     return success;
 }
 
-void showWeather() {
-    unsigned long weatherStartTime = millis();
-    
-    // Run the animation for 10 seconds
-    while (millis() - weatherStartTime < 10000) {
-        
-        // 1. Draw everything securely to the invisible canvas in RAM
-        weatherWidget.draw(&myGraphics, &myFont, 64, 64, millis());
-        
-        // 2. Smash the finished picture onto the live LED matrix!
-        pushCanvasToMatrix();
-        
-        delay(30); // ~30fps frame rate lock
-        server.handleClient();
-    }
+uint16_t applyNightVision(uint16_t color) {
+    if (!currentIsNight || color == 0) return color;
+
+    uint8_t r = (color >> 11) & 0x1F;
+    uint8_t g = (color >> 5) & 0x3F;
+    uint8_t b = color & 0x1F;
+
+    uint8_t lum = (r + (g >> 1) + b) / 3;
+    lum >>= 1;
+
+    return (lum << 11);
 }
 
-void showLogo() {
-     unsigned long logoStartTime = millis();
-    
-    // Run the animation for 10 seconds
-    while (millis() - logoStartTime < 10000) {
-        logoWidget.draw(&myGraphics, &myFont, 64, 64);
-        pushCanvasToMatrix();
-        delay(30); // ~30fps frame rate lock
-        server.handleClient();
-    }
-}
-
-void showClock() {
-  // --- SHOW CLOCK ---
-   unsigned long clockStartTime = millis();
-   
-   // Create a time structure to hold the real time
-   struct tm timeinfo;
-   int temp_hour = 12; // Fallback defaults
-   int temp_minute = 30;
-
-   // Grab the actual time from the ESP32's internal clock
-   if (getLocalTime(&timeinfo)) {
-       temp_hour = timeinfo.tm_hour;
-       temp_minute = timeinfo.tm_min;
-
-       // If your MarioClock code expects 12-hour time instead of 24-hour time:
-       if (temp_hour == 0) {
-           temp_hour = 12; // Midnight
-       } else if (temp_hour > 12) {
-           temp_hour -= 12; // PM hours
-       }
-   }
-   
-   // Run the clock animation for 30 seconds
-   while (millis() - clockStartTime < 10000) 
-   {
-      // (Optional) Re-check the time inside the while-loop so it updates instantly 
-      // if the minute rolls over during this 30-second window!
-      if (getLocalTime(&timeinfo)) {
-          int current_minute = timeinfo.tm_min;
-          int current_hour = timeinfo.tm_hour;
-          if (current_hour > 12) current_hour -= 12;
-          if (current_hour == 0) current_hour = 12;
-          
-          MarioClock::drawClockFrame(current_hour, current_minute); 
-      } else {
-          // Fallback if time fails to fetch
-          MarioClock::drawClockFrame(temp_hour, temp_minute); 
-      }
-      
-      delay(30); // Prevent the loop from running too fast
-      server.handleClient();
-   }
-}
-
-void showMorphClock() {
-    unsigned long clockStartTime = millis();
-    
-    // Run the morphing clock animation for 10 seconds
-    while (millis() - clockStartTime < 10000) {
-        
-        // 1. Draw securely to the invisible canvas in RAM
-        morphWidget.draw(&myGraphics, &myFont, 64, 64, millis());
-        
-        // 2. Push to DMA matrix
-        pushCanvasToMatrix();
-        
-        delay(30); // ~30fps frame rate lock
-        server.handleClient();
-    }
-}
-
-void showDateProgress() {
-    unsigned long dateStartTime = millis();
-    
-    // Run the animation for 10 seconds (adjust as desired)
-    while (millis() - dateStartTime < 10000) {
-        
-        // 1. Draw everything securely to the invisible canvas in RAM
-        // Pass in the existing myGraphics and myFont wrappers
-        dateWidget.draw(&myGraphics, &myFont, 64, 64, millis());
-        
-        // 2. Smash the finished picture onto the live LED matrix
-        pushCanvasToMatrix();
-        
-        delay(30); // ~30fps frame rate lock
-        server.handleClient();
-    }
-}
-
-void showTextBlast() {
-    textBlastWidget.fetchMessage();
-    textBlastWidget.resetScroll(64);
-
-    unsigned long startTime = millis();
-    bool isDone = false;
-    
-    // Loop until the widget says it's done OR 60 seconds have passed (safety net)
-    while (!isDone && (millis() - startTime < 60000)) {
-        
-        // The draw function will return TRUE when the requested cycles are finished
-        isDone = textBlastWidget.draw(&myGraphics, &myFont, &myMarioFont, 64, 64, millis());
-        
-        pushCanvasToMatrix();
-        
-        delay(30);
-        server.handleClient();
-    }
-}
-
-void showPlanes() {
-    unsigned long planesStartTime = millis();
-    while (millis() - planesStartTime < 10000) { // Show for 10 seconds
-        planesWidget.draw(&myGraphics, &myFont, 64, 64, millis());
-        pushCanvasToMatrix();
-        delay(30);
-        server.handleClient();
-    }
-}
-
-void showISS() {
-    unsigned long issStartTime = millis();
-    
-    // Run the animation for 10 seconds
-    while (millis() - issStartTime < 10000) {
-        
-        // 1. Draw to the invisible canvas
-        issWidget.draw();
-        
-        // 2. Smash onto the live matrix
-        pushCanvasToMatrix();
-        
-        delay(30); // ~30fps lock
-        server.handleClient();
-    }
-}
-
-bool loadConfig() {
-    File file = FILESYSTEM.open("/config.json", "r");
-    if (!file) return false;
-
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, file);
-    file.close();
-
-    if (error) return false;
-
-    currentSSID = doc["ssid"] | "";
-    currentPASS = doc["password"] | "";
-    
-    // Load preferences (with safe fallbacks if they don't exist yet)
-    prefShowGifs = doc["gifs"] | true;
-    prefShowClock = doc["clock"] | true;
-    prefShowDate = doc["date"] | true;
-    prefShowWeather = doc["weather"] | true;
-    prefShowISS = doc["iss"] | true;
-    prefShowPlanes = doc["planes"] | true;
-    prefShowTextBlast = doc["textblast"] | true;
-    prefLat = doc["lat"] | 34.16;
-    prefLng = doc["lng"] | -84.80;
-    prefOsUser = doc["osUser"] | "";
-    prefOsPass = doc["osPass"] | "";
-    prefBrightness = doc["brightness"] | 128;
-    prefNightMode = doc["nightMode"] | false;
-    prefNightStart = doc["nightStart"] | 22;
-    prefNightEnd = doc["nightEnd"] | 6;
-    
-    return (currentSSID.length() > 0);
-}
-
-void saveConfig() {
-    JsonDocument doc;
-    doc["ssid"] = currentSSID;
-    doc["password"] = currentPASS;
-
-    doc["gifs"] = prefShowGifs;
-    doc["clock"] = prefShowClock;
-    doc["date"] = prefShowDate;
-    doc["weather"] = prefShowWeather;
-    doc["iss"] = prefShowISS;
-    doc["planes"] = prefShowPlanes;
-    doc["textblast"] = prefShowTextBlast;
-    doc["lat"] = prefLat;
-    doc["lng"] = prefLng;
-    doc["osUser"] = prefOsUser;
-    doc["osPass"] = prefOsPass;
-    doc["brightness"] = prefBrightness;
-    doc["nightMode"] = prefNightMode;
-    doc["nightStart"] = prefNightStart;
-    doc["nightEnd"] = prefNightEnd;
-
-    File file = FILESYSTEM.open("/config.json", "w");
-    if (file) {
-        serializeJson(doc, file);
-        file.close();
-        Serial.println("[FS] Full configuration saved to LittleFS.");
-    }
-}
-
-void updateBrightness() {
-    if (!prefNightMode) {
-        currentIsNight = false;
-        dma_display->setBrightness8(prefBrightness);
-        return;
-    }
-    
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
-        int currentHour = timeinfo.tm_hour;
-        bool isNight = false;
-        
-        if (prefNightStart < prefNightEnd) {
-            isNight = (currentHour >= prefNightStart && currentHour < prefNightEnd);
-        } else {
-            isNight = (currentHour >= prefNightStart || currentHour < prefNightEnd);
-        }
-        
-        if (isNight) {
-            currentIsNight = true;          // <-- Update flag
-            dma_display->setBrightness8(2); // Keep the hardware somewhat dim
-        } else {
-            currentIsNight = false;         // <-- Update flag
-            dma_display->setBrightness8(prefBrightness);
-        }
-    }
-}
 
 void maintainNetwork() {
     unsigned long now = millis();
@@ -1110,6 +402,8 @@ void setup() {
       
       if (WiFi.status() == WL_CONNECTED) {
           networkFound = true;
+          Serial.print("IP Address: ");
+          Serial.println(WiFi.localIP());
       }
   }
 
@@ -1298,7 +592,7 @@ void loop()
                     strcpy(filePath, gifFile.path());
                 
                     if (prefShowGifs) {
-                        ShowGIF(filePath);
+                        playGIF(filePath);
                     } else { // someone toggled Gifs off
                         gifFile.close();
                         break;
