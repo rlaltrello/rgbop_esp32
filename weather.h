@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
-#include "config.h"
+//#include "config.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -18,6 +18,13 @@
 class Font {
 public:
     virtual void drawText(class GraphicsContext* ctx, const std::string& text, int x, int y) = 0;
+
+    virtual void drawColorText(GraphicsContext* ctx,
+                           const std::string& text,
+                           int x,
+                           int y,
+                           uint16_t color) = 0;
+
     virtual int getTextWidth(const std::string& text) = 0;
 };
 
@@ -379,6 +386,58 @@ public:
         int xOffset = ((width - textWidth) / 2) + 1;
         font->drawText(ctx, tempString, xOffset, 55);
     }
+    bool fetchWeatherData() {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Weather fetch aborted: WiFi not connected.");
+        return false;
+    }
+
+    Serial.println("Fetching weather data via HTTP...");
+    
+    WiFiClient client;
+    HTTPClient http;
+    bool success = false;
+    extern float prefLat;
+    extern float prefLng;
+
+    String weatherUrl = "http://api.open-meteo.com/v1/forecast?latitude=" + String(prefLat, 4) + 
+                        "&longitude=" + String(prefLng, 4) + 
+                        "&current_weather=true&temperature_unit=fahrenheit";
+    
+    Serial.println("Weather URL: " + weatherUrl); // Good for debugging!
+    
+    http.begin(client, weatherUrl);
+    int httpCode = http.GET();
+    
+    if (httpCode > 0) {
+        if (httpCode == HTTP_CODE_OK) {
+            String payload = http.getString();
+            
+            JsonDocument doc; 
+            DeserializationError error = deserializeJson(doc, payload);
+            
+            if (!error) {
+                int temp = doc["current_weather"]["temperature"];
+                int code = doc["current_weather"]["weathercode"];
+                int isDay = doc["current_weather"]["is_day"];
+                
+                updateWeather(temp, code, isDay == 1);
+                Serial.printf("Weather updated: %dF, Code: %d\n", temp, code);
+                success = true; // We successfully parsed the data!
+            } else {
+                Serial.print("JSON Parse failed: ");
+                Serial.println(error.c_str());
+            }
+        } else {
+             Serial.printf("HTTP request failed, server returned code: %d\n", httpCode);
+        }
+    } else {
+        Serial.printf("HTTP connection failed, error: %s\n", http.errorToString(httpCode).c_str());
+    }
+    
+    http.end();
+    return success;
+}
 };
 
 #endif // WEATHER_H

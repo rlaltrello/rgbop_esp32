@@ -27,6 +27,7 @@ extern int prefBrightness;
 extern bool prefNightMode;
 extern int prefNightStart;
 extern int prefNightEnd;
+extern int prefTransitionTime;
 
 extern bool currentIsNight;
 
@@ -66,6 +67,7 @@ static bool loadConfig() {
     prefNightMode = doc["nightMode"] | false;
     prefNightStart = doc["nightStart"] | 22;
     prefNightEnd = doc["nightEnd"] | 6;
+    prefTransitionTime = doc["transitionTime"] | 10;
 
     return (currentSSID.length() > 0);
 }
@@ -97,6 +99,7 @@ void saveConfig() {
     doc["nightMode"] = prefNightMode;
     doc["nightStart"] = prefNightStart;
     doc["nightEnd"] = prefNightEnd;
+    doc["transitionTime"] = prefTransitionTime;
 
     File file = LittleFS.open("/config.json", "w");
     if (file) {

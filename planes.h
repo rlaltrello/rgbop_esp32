@@ -15,6 +15,9 @@ private:
     float myLng;
     float searchRadius;
     String bearerToken = "";
+    String displayLoc = "";
+    String displayAlt = "";
+    String displaySpd = "";
 
     // Data for the closest plane
     bool hasPlane = false;
@@ -176,6 +179,9 @@ public:
                                 float alt_m = state[13].isNull() ? state[7].as<float>() : state[13].as<float>();
                                 closestAlt = round(alt_m * 3.28084);
                                 closestSpeed = round(state[9].as<float>() * 2.23694);
+                                displayLoc = String(closestDist, 1) + "mi " + closestHeading;
+                                displayAlt = String(closestAlt) + " ft";
+                                displaySpd = String(closestSpeed) + " mph";
                                 
                                 foundAirborne = true;
                             }
@@ -218,12 +224,9 @@ public:
         ctx->setFillStyle(0x00FFFF); 
         ctx->fillRect(0, 9, width, 1);
 
-        extern GFXcanvas16 weatherCanvas; 
-        weatherCanvas.setTextWrap(false); 
-        weatherCanvas.setTextSize(1);
-        weatherCanvas.setCursor(2, 1); 
-        weatherCanvas.setTextColor(0x07FF); 
-        weatherCanvas.print("PLANE TRAX");     
+
+        font->drawColorText(ctx, "PLANE TRAX", 2, 8, 0x07FF);
+  
 
         if (!hasPlane) {
             font->drawText(ctx, "NO PLANES", 5, 34);
@@ -234,14 +237,9 @@ public:
         ctx->setFillStyle(0x00FF00); 
         font->drawText(ctx, closestCallsign.c_str(), 2, 20);
 
-        String locStr = String(closestDist, 1) + "mi " + closestHeading;
-        font->drawText(ctx, locStr.c_str(), 2, 32);
-
-        String altStr = String(closestAlt) + " ft";
-        font->drawText(ctx, altStr.c_str(), 2, 44);
-
-        String spdStr = String(closestSpeed) + " mph";
-        font->drawText(ctx, spdStr.c_str(), 2, 56);
+        font->drawText(ctx, displayLoc.c_str(), 2, 32);
+        font->drawText(ctx, displayAlt.c_str(), 2, 44);
+        font->drawText(ctx, displaySpd.c_str(), 2, 56);
     }
 };
 

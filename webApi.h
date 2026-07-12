@@ -24,6 +24,7 @@ extern int prefBrightness;
 extern bool prefNightMode;
 extern int prefNightStart;
 extern int prefNightEnd;
+extern int prefTransitionTime;
 
 extern void updateBrightness();
 extern void saveConfig();
@@ -60,6 +61,7 @@ static void setupWebRoutes() {
         doc["nightMode"] = prefNightMode;
         doc["nightStart"] = prefNightStart;
         doc["nightEnd"] = prefNightEnd;
+        doc["transitionTime"] = prefTransitionTime;
 
         String response;
         serializeJson(doc, response);
@@ -95,6 +97,7 @@ static void setupWebRoutes() {
         if (doc.containsKey("nightMode")) prefNightMode = doc["nightMode"];
         if (doc.containsKey("nightStart")) prefNightStart = doc["nightStart"];
         if (doc.containsKey("nightEnd")) prefNightEnd = doc["nightEnd"];
+        if (doc.containsKey("transitionTime")) prefTransitionTime = doc["transitionTime"];
 
         updateBrightness();
         saveConfig();

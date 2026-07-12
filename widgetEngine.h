@@ -16,6 +16,9 @@ extern TextBlastWidget textBlastWidget;
 extern LogoWidget logoWidget;
 extern IssLocationWidget issWidget;
 extern PlanesWidget planesWidget;
+extern GFXcanvas16 widgetCanvas;
+
+extern int prefTransitionTime;
 
 // Mario font provided by main.ino
 extern CustomMarioFont myMarioFont;
@@ -23,7 +26,8 @@ extern CustomMarioFont myMarioFont;
 // ------------------------------------------------------------
 // CANVAS + FONT + GRAPHICS WRAPPERS
 // ------------------------------------------------------------
-static GFXcanvas16 widgetCanvas(64, 64);
+GFXcanvas16 widgetCanvas(64, 64);
+extern GFXcanvas16 weatherCanvas; 
 
 class MatrixFont : public Font {
 public:
@@ -34,6 +38,21 @@ public:
         widgetCanvas.setTextColor(0xFFFF);
         widgetCanvas.print(text.c_str());
     }
+
+    
+void drawColorText(GraphicsContext* ctx,
+                   const std::string& text,
+                   int x,
+                   int y,
+                   uint16_t color) override{
+                            widgetCanvas.setTextWrap(false);
+        widgetCanvas.setTextSize(1);
+        widgetCanvas.setCursor(x, y - 7);
+        widgetCanvas.setTextColor(color);
+        widgetCanvas.print(text.c_str());
+
+                   }
+
 
     int getTextWidth(const std::string& text) override {
         return text.length() * 6;
@@ -149,7 +168,7 @@ static void pushCanvasToMatrix() {
 // ------------------------------------------------------------
 static void showWeather() {
     unsigned long start = millis();
-    while (millis() - start < 10000) {
+    while (millis() - start < (prefTransitionTime * 1000)) {
         weatherWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
         pushCanvasToMatrix();
         delay(30);
@@ -159,7 +178,7 @@ static void showWeather() {
 
 static void showLogo() {
     unsigned long start = millis();
-    while (millis() - start < 10000) {
+    while (millis() - start < (prefTransitionTime * 1000)) {
         logoWidget.draw(&widgetGraphics, &widgetFont, 64, 64);
         pushCanvasToMatrix();
         delay(30);
@@ -171,7 +190,7 @@ static void showClock() {
     unsigned long start = millis();
     struct tm timeinfo;
 
-    while (millis() - start < 10000) {
+    while (millis() - start < (prefTransitionTime * 1000)) {
         if (getLocalTime(&timeinfo)) {
             int hour = timeinfo.tm_hour;
             int minute = timeinfo.tm_min;
@@ -186,7 +205,7 @@ static void showClock() {
 
 static void showMorphClock() {
     unsigned long start = millis();
-    while (millis() - start < 10000) {
+    while (millis() - start < (prefTransitionTime * 1000)) {
         morphWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
         pushCanvasToMatrix();
         delay(30);
@@ -196,7 +215,7 @@ static void showMorphClock() {
 
 static void showDateProgress() {
     unsigned long start = millis();
-    while (millis() - start < 10000) {
+    while (millis() - start < (prefTransitionTime * 1000)) {
         dateWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
         pushCanvasToMatrix();
         delay(30);
@@ -221,7 +240,7 @@ static void showTextBlast() {
 
 static void showPlanes() {
     unsigned long start = millis();
-    while (millis() - start < 10000) {
+    while (millis() - start < (prefTransitionTime * 1000)) {
         planesWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
         pushCanvasToMatrix();
         delay(30);
@@ -231,7 +250,7 @@ static void showPlanes() {
 
 static void showISS() {
     unsigned long start = millis();
-    while (millis() - start < 10000) {
+    while (millis() - start < (prefTransitionTime * 1000)) {
         issWidget.draw();
         pushCanvasToMatrix();
         delay(30);

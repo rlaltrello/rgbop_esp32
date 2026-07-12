@@ -7,7 +7,7 @@
 #include <Adafruit_GFX.h>
 #include <Fonts/TomThumb.h>
 
-extern GFXcanvas16 weatherCanvas; 
+extern GFXcanvas16 widgetCanvas;
 
 class IssLocationWidget {
 private:
@@ -195,39 +195,39 @@ public:
     }
 
     void draw() {
-        weatherCanvas.fillScreen(0x0000); 
+        widgetCanvas.fillScreen(0x0000); 
 
         // 1. TOP SECTION: "ISS" Blue Badge
-        weatherCanvas.fillRect(0, 0, 24, 11, hexTo565(0x2D38BF));
-        weatherCanvas.setFont(); 
-        weatherCanvas.setTextWrap(false);
-        weatherCanvas.setTextSize(1);
-        weatherCanvas.setTextColor(0x0000); 
-        weatherCanvas.setCursor(3, 2); 
-        weatherCanvas.print("ISS");
+        widgetCanvas.fillRect(0, 0, 24, 11, hexTo565(0x2D38BF));
+        widgetCanvas.setFont(); 
+        widgetCanvas.setTextWrap(false);
+        widgetCanvas.setTextSize(1);
+        widgetCanvas.setTextColor(0x0000); 
+        widgetCanvas.setCursor(3, 2); 
+        widgetCanvas.print("ISS");
 
         // First Divider Line
-        weatherCanvas.drawLine(0, 13, 64, 13, hexTo565(0x222222));
+        widgetCanvas.drawLine(0, 13, 64, 13, hexTo565(0x222222));
 
         // 2. MIDDLE SECTION: Coordinates
-        weatherCanvas.setFont(&TomThumb);
-        weatherCanvas.setTextColor(hexTo565(0x888888));
+        widgetCanvas.setFont(&TomThumb);
+        widgetCanvas.setTextColor(hexTo565(0x888888));
         
-        weatherCanvas.setCursor(1, 20); 
-        weatherCanvas.print("Lat: ");
-        weatherCanvas.print(currentLat);
+        widgetCanvas.setCursor(1, 20); 
+        widgetCanvas.print("Lat: ");
+        widgetCanvas.print(currentLat);
         
-        weatherCanvas.setCursor(1, 27);
-        weatherCanvas.print("Lon: ");
-        weatherCanvas.print(currentLon);
+        widgetCanvas.setCursor(1, 27);
+        widgetCanvas.print("Lon: ");
+        widgetCanvas.print(currentLon);
 
         // Second Divider Line
-        weatherCanvas.drawLine(0, 31, 64, 31, hexTo565(0x222222));
+        widgetCanvas.drawLine(0, 31, 64, 31, hexTo565(0x222222));
 
         // 3. BOTTOM SECTION: Location Text (Fixing the multi-line left margin issue)
-        weatherCanvas.setFont(); 
-        weatherCanvas.setTextColor(locationColor);
-        weatherCanvas.setTextWrap(false); 
+        widgetCanvas.setFont(); 
+        widgetCanvas.setTextColor(locationColor);
+        widgetCanvas.setTextWrap(false); 
 
         int startPos = 0;
         int nextPos = wrappedLocation.indexOf('\n');
@@ -247,8 +247,8 @@ public:
             }
             
             // Hard enforce the 1-pixel X offset for every single line
-            weatherCanvas.setCursor(1, currentY);        
-            weatherCanvas.print(line);
+            widgetCanvas.setCursor(1, currentY);        
+            widgetCanvas.print(line);
             currentY += lineHeight; // Drop down 8 pixels for the next line
         }
     }
