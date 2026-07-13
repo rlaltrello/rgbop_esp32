@@ -51,6 +51,7 @@ bool prefShowWeather = true;
 bool prefShowISS = true;
 bool prefShowPlanes = true;
 bool prefShowTextBlast = true;
+bool prefShowDoodles = true;
 
 float prefLat = 34.16;
 float prefLng = -84.80;
@@ -117,6 +118,49 @@ uint16_t applyNightVision(uint16_t color) {
     return (lum << 11);
 }
 
+
+void syncTimeWithLocation() {
+    Serial.println("[TIME] Fetching timezone for current coordinates...");
+    
+    // We use standard WiFiClient for HTTP (no 'S' since your API is port 8084)
+    WiFiClient client; 
+    HTTPClient http;
+    
+    // Build the URL using your config variables
+    String url = "http://laltrello.com:8084/api/timezone?lat=" + String(prefLat, 4) + "&lon=" + String(prefLng, 4);
+    
+    http.begin(client, url);
+    http.setTimeout(5000); // 5-second timeout so the ESP doesn't freeze if your server is unreachable
+
+    int httpCode = http.GET();
+    
+    if (httpCode == HTTP_CODE_OK) {
+        String payload = http.getString();
+        DynamicJsonDocument doc(256);
+        DeserializationError error = deserializeJson(doc, payload);
+        
+        if (!error && doc.containsKey("posix")) {
+            String posix = doc["posix"].as<String>();
+            Serial.printf("[TIME] API Success! Timezone set to: %s\n", posix.c_str());
+            
+            // Set the timezone and sync with NTP servers
+            configTzTime(posix.c_str(), "pool.ntp.org", "time.nist.gov");
+            http.end();
+            return; 
+        } else {
+            Serial.println("[TIME] JSON parse failed or missing 'posix' key.");
+        }
+    } else {
+        Serial.printf("[TIME] API call failed, HTTP Code: %d\n", httpCode);
+    }
+    
+    http.end();
+    
+    // --- FALLBACK ---
+    // If the API fails or isn't set, default to EST/EDT so the clock doesn't stay at 1970
+    Serial.println("[TIME] Falling back to default EST5EDT.");
+    configTzTime("EST5EDT,M3.2.0,M11.1.0", "pool.ntp.org", "time.nist.gov");
+}
 
 /************************* Arduino Sketch Setup and Loop() *******************************/
 void setup() {
@@ -191,9 +235,7 @@ void setup() {
       }
   }
 
-  // 5. --- CONFIGURE TIME ---
-  configTzTime("EST5EDT,M3.2.0,M11.1.0", "pool.ntp.org", "time.nist.gov");
-  Serial.println("Time configured via NTP.");
+  syncTimeWithLocation();
   
   //planesWidget.begin(OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, MY_LAT, MY_LNG, 20.0);
   if (prefShowPlanes) planesWidget.begin(prefOsUser, prefOsPass, prefLat, prefLng, 20.0);
@@ -297,7 +339,7 @@ void handleProvisioning() {
 // ------------------------------------------------------------
 void runWidgetRotation() {
     bool anyWidgetActive = prefShowClock || prefShowDate || prefShowTextBlast || 
-                           prefShowWeather || prefShowISS || prefShowPlanes;
+                           prefShowWeather || prefShowISS || prefShowPlanes || prefShowDoodles;
 
     if (anyWidgetActive) {
         if (prefShowClock) {
@@ -310,6 +352,7 @@ void runWidgetRotation() {
         if (prefShowWeather) showWeather();      
         if (prefShowISS) showISS();
         if (prefShowPlanes) showPlanes();
+        if (prefShowDoodles) showDoodles();
     } else {
         showLogo();
     }

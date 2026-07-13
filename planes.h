@@ -14,13 +14,15 @@ private:
     float myLat;
     float myLng;
     float searchRadius;
-    String bearerToken = "";
     String displayLoc = "";
     String displayAlt = "";
     String displaySpd = "";
 
-    // Data for the closest plane
+    // State trackers
     bool hasPlane = false;
+    bool apiError = false; // NEW: Tracks if we have an auth or network issue
+
+    // Data for the closest plane
     String closestCallsign = "";
     String closestHeading = "";
     float closestDist = 0.0;
@@ -59,36 +61,6 @@ private:
         return "N";
     }
 
-    bool fetchToken() {
-        Serial.println("[PLANES] Requesting new OAuth2 Token...");
-        bool success = false; // The single-exit variable
-        
-        WiFiClientSecure *client = new WiFiClientSecure();
-        client->setInsecure(); 
-        
-        HTTPClient http;
-        http.begin(*client, "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token");
-        http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-
-        String body = "grant_type=client_credentials&client_id=" + clientId + "&client_secret=" + clientSecret;
-        
-        int httpCode = http.POST(body);
-        if (httpCode == 200) {
-            JsonDocument doc;
-            deserializeJson(doc, http.getStream());
-            bearerToken = doc["access_token"].as<String>();
-            Serial.println("[PLANES] Token successfully acquired!");
-            success = true;
-        } else {
-            Serial.printf("[PLANES] Token fetch failed. HTTP %d\n", httpCode);
-        }
-        
-        // UNCONDITIONAL CLEANUP CHOKEPOINT
-        http.end();
-        delete client; 
-        return success;
-    }
-
 public:
     void begin(String id, String secret, float lat, float lng, float radiusMiles) {
         clientId = id;
@@ -99,11 +71,14 @@ public:
     }
 
     bool fetchPlanesData() {
-        if (bearerToken == "") {
-            if (!fetchToken()) return false;
-        }
-
         Serial.println("[PLANES] Fetching states from OpenSky...");
+
+        // NEW: Check for missing credentials immediately and abort if empty
+        if (clientId.length() == 0 || clientSecret.length() == 0) {
+            Serial.println("[PLANES] Missing OpenSky credentials.");
+            apiError = true;
+            return true; // Return true so the main rotation loop isn't blocked
+        }
 
         float radius_km = searchRadius * 1.609;
         float lat_offset = (radius_km / 6371.0) * (180.0 / M_PI);
@@ -121,13 +96,16 @@ public:
         
         HTTPClient http;
         http.begin(*client, url);
-        http.addHeader("Authorization", "Bearer " + bearerToken);
-        http.setTimeout(10000); 
+
+        // Basic Authentication
+        http.setAuthorization(clientId.c_str(), clientSecret.c_str());
 
         int httpCode = http.GET();
         Serial.printf("[PLANES] API HTTP Response Code: %d\n", httpCode);
 
         if (httpCode == 200) {
+            apiError = false; // Clear any previous errors!
+            
             JsonDocument filter;
             filter["states"][0][1] = true;  
             filter["states"][0][5] = true;  
@@ -144,7 +122,6 @@ public:
             if (error) {
                 Serial.printf("[PLANES] JSON Parse Failed: %s\n", error.c_str());
             } else {
-                // Parse succeeded, process the data
                 JsonArray states = doc["states"];
                 int totalPlanesInBox = states.size();
                 Serial.printf("[PLANES] Found %d total aircraft in the bounding box.\n", totalPlanesInBox);
@@ -201,11 +178,15 @@ public:
                     success = true;
                 }
             }
-        } else if (httpCode == 401) {
-            Serial.println("[PLANES] Token unauthorized/expired. Resetting...");
-            bearerToken = ""; 
         } else {
-             Serial.printf("[PLANES] Unexpected API Error. HTTP Code: %d\n", httpCode);
+            // NEW: Handle HTTP errors cleanly
+            apiError = true;
+            if (httpCode == 401) {
+                Serial.println("[PLANES] Auth failed. Check OpenSky username/password.");
+            } else {
+                Serial.printf("[PLANES] Unexpected API Error. HTTP Code: %d\n", httpCode);
+            }
+            success = true; // Let the loop continue despite the error
         }
 
         // UNCONDITIONAL CLEANUP CHOKEPOINT
@@ -224,9 +205,14 @@ public:
         ctx->setFillStyle(0x00FFFF); 
         ctx->fillRect(0, 9, width, 1);
 
-
         font->drawColorText(ctx, "PLANE TRAX", 2, 8, 0x07FF);
-  
+
+        // NEW: Intercept the screen and show the error in bright red (RGB565 = 0xF800)
+        if (apiError) {
+            font->drawColorText(ctx, "CHECK API", 6, 34, 0xF800); 
+            font->drawColorText(ctx, "SETTINGS", 10, 46, 0xF800);
+            return;
+        }
 
         if (!hasPlane) {
             font->drawText(ctx, "NO PLANES", 5, 34);

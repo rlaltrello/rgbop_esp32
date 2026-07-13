@@ -16,6 +16,7 @@ extern bool prefShowWeather;
 extern bool prefShowISS;
 extern bool prefShowPlanes;
 extern bool prefShowTextBlast;
+extern bool prefShowDoodles;
 
 extern float prefLat;
 extern float prefLng;
@@ -56,6 +57,7 @@ static bool loadConfig() {
     prefShowISS = doc["iss"] | true;
     prefShowPlanes = doc["planes"] | true;
     prefShowTextBlast = doc["textblast"] | true;
+    prefShowDoodles = doc["doodles"] | true;
 
     prefLat = doc["lat"] | 34.16;
     prefLng = doc["lng"] | -84.80;
@@ -88,6 +90,7 @@ void saveConfig() {
     doc["iss"] = prefShowISS;
     doc["planes"] = prefShowPlanes;
     doc["textblast"] = prefShowTextBlast;
+    doc["doodles"] = prefShowDoodles;
 
     doc["lat"] = prefLat;
     doc["lng"] = prefLng;

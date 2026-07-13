@@ -7,6 +7,7 @@
 extern WebServer server;
 extern String gifDir;
 extern File fsUploadFile;
+extern void syncTimeWithLocation();
 
 // Preferences (extern so main.ino owns the state)
 extern bool prefShowGifs;
@@ -25,6 +26,7 @@ extern bool prefNightMode;
 extern int prefNightStart;
 extern int prefNightEnd;
 extern int prefTransitionTime;
+extern bool prefShowDoodles;
 
 extern void updateBrightness();
 extern void saveConfig();
@@ -62,6 +64,7 @@ static void setupWebRoutes() {
         doc["nightStart"] = prefNightStart;
         doc["nightEnd"] = prefNightEnd;
         doc["transitionTime"] = prefTransitionTime;
+        doc["doodles"] = prefShowDoodles;
 
         String response;
         serializeJson(doc, response);
@@ -98,12 +101,149 @@ static void setupWebRoutes() {
         if (doc.containsKey("nightStart")) prefNightStart = doc["nightStart"];
         if (doc.containsKey("nightEnd")) prefNightEnd = doc["nightEnd"];
         if (doc.containsKey("transitionTime")) prefTransitionTime = doc["transitionTime"];
+        if (doc.containsKey("doodles")) prefShowDoodles = doc["doodles"];
 
         updateBrightness();
+        syncTimeWithLocation();
         saveConfig();
 
         server.send(200, "application/json", "{\"status\":\"success\"}");
     });
+
+    // --- DOODLE UPLOAD ---
+    server.on("/api/doodle/upload", HTTP_POST,
+        []() {
+            server.send(200, "application/json", "{\"status\":\"success\"}");
+        },
+        []() {
+            HTTPUpload& upload = server.upload();
+            if (upload.status == UPLOAD_FILE_START) {
+                // Ensure the doodles directory exists
+                if (!LittleFS.exists("/doodles")) {
+                    LittleFS.mkdir("/doodles");
+                }
+                
+                String filename = upload.filename;
+                if (!filename.startsWith("/")) filename = "/" + filename;
+                
+                String path = "/doodles" + filename;
+                fsUploadFile = LittleFS.open(path, "w");
+            }
+            else if (upload.status == UPLOAD_FILE_WRITE) {
+                if (fsUploadFile) fsUploadFile.write(upload.buf, upload.currentSize);
+            }
+            else if (upload.status == UPLOAD_FILE_END) {
+                if (fsUploadFile) {
+                    fsUploadFile.close();
+                    Serial.printf("Saved new doodle: %s (%u bytes)\n", upload.filename.c_str(), upload.totalSize);
+                }
+            }
+        }
+    );
+
+
+    // --- LIST DOODLES ---
+    server.on("/api/doodle/list", HTTP_GET, []() {
+        File root = LittleFS.open("/doodles");
+        if (!root || !root.isDirectory()) {
+            server.send(404, "application/json", "{\"error\":\"Doodles directory not found\"}");
+            return;
+        }
+
+        JsonDocument doc;
+        JsonArray arr = doc.to<JsonArray>();
+
+        File file = root.openNextFile();
+        while (file) {
+            if (!file.isDirectory()) {
+                arr.add(String(file.name()));
+            }
+            file = root.openNextFile();
+        }
+        root.close();
+
+        String response;
+        serializeJson(doc, response);
+        server.send(200, "application/json", response);
+    });
+
+ // --- DOWNLOAD DOODLE ---
+    server.on("/api/doodle/download", HTTP_GET, []() {
+        if (!server.hasArg("name")) {
+            server.send(400, "text/plain", "Missing name");
+            return;
+        }
+        
+        String path = "/doodles/" + server.arg("name");
+        
+        // 1. Open the file into a variable
+        File file = LittleFS.open(path, "r");
+        
+        // 2. Check if the file is valid
+        if (!file || file.isDirectory()) {
+            server.send(404, "text/plain", "File not found");
+            return;
+        }
+
+        // 3. Pass the file variable to streamFile
+        server.streamFile(file, "application/octet-stream");
+        
+        // 4. Close the file after streaming
+        file.close();
+    });
+
+// --- DELETE SPECIFIC DOODLE ---
+    server.on("/api/doodle/delete", HTTP_POST, []() {
+        if (!server.hasArg("name")) {
+            server.send(400, "application/json", "{\"error\":\"Missing filename\"}");
+            return;
+        }
+
+        String filename = server.arg("name");
+        String path = "/doodles/" + filename;
+
+        // 1. Force close any potential hanging upload file handles
+        if (fsUploadFile) {
+            fsUploadFile.close();
+            Serial.println("[API] Force closed pending upload handle.");
+        }
+
+        // 2. Perform the deletion
+        if (LittleFS.exists(path)) {
+            if (LittleFS.remove(path)) {
+                Serial.printf("[API] Successfully deleted: %s\n", path.c_str());
+                server.send(200, "application/json", "{\"status\":\"success\"}");
+            } else {
+                // If it fails again, it means the LittleFS driver has a locked handle
+                Serial.println("[API] LittleFS lock detected.");
+                server.send(500, "application/json", "{\"error\":\"File is locked by system\"}");
+            }
+        } else {
+            server.send(404, "application/json", "{\"error\":\"File not found\"}");
+        }
+    });
+
+    // --- CLEAR ALL DOODLES ---
+server.on("/api/doodle/clear", HTTP_POST, []() {
+    File root = LittleFS.open("/doodles");
+    if (!root || !root.isDirectory()) {
+        server.send(404, "application/json", "{\"error\":\"Directory not found\"}");
+        return;
+    }
+
+    File file = root.openNextFile();
+    while (file) {
+        String fileName = file.name();
+        String path = "/doodles/" + fileName;
+        file.close(); // Close before deleting
+        LittleFS.remove(path);
+        file = root.openNextFile();
+    }
+    root.close();
+    
+    Serial.println("[API] Doodles directory cleared.");
+    server.send(200, "application/json", "{\"status\":\"success\",\"message\":\"Directory cleared\"}");
+});
 
     // --- LIST GIFS ---
     server.on("/api/gifs", HTTP_GET, []() {

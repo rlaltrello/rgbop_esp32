@@ -213,6 +213,62 @@ static void showMorphClock() {
     }
 }
 
+// Static variable to remember where we are in the directory across function calls
+static File doodleDir;
+
+static void showDoodles() {
+    // 1. Open directory if it's not already open
+    if (!doodleDir || !doodleDir.isDirectory()) {
+        doodleDir = LittleFS.open("/doodles");
+        if (!doodleDir) return; // Directory doesn't exist yet
+    }
+
+    // 2. Try to get the next file
+    File file = doodleDir.openNextFile();
+    
+    // 3. If we hit the end of the folder, loop back to the beginning
+    if (!file) {
+        doodleDir.close();
+        doodleDir = LittleFS.open("/doodles");
+        if (!doodleDir) return;
+        file = doodleDir.openNextFile();
+        if (!file) return; // Directory is completely empty
+    }
+
+    // 4. Seek forward until we find a valid .bin file
+    while (file) {
+        if (!file.isDirectory() && String(file.name()).endsWith(".bin") && file.size() == 8192) {
+            break; // Found a valid doodle!
+        }
+        file.close();
+        file = doodleDir.openNextFile();
+    }
+
+    // 5. Draw it
+    if (file) {
+        widgetCanvas.fillScreen(0x0000); 
+        uint8_t buffer[128]; 
+        file.seek(0);
+        
+        for (int y = 0; y < 64; y++) {
+            file.read(buffer, 128);
+            for (int x = 0; x < 64; x++) {
+                uint16_t color = (buffer[x * 2] << 8) | buffer[x * 2 + 1];
+                widgetCanvas.drawPixel(x, y, color);
+            }
+        }
+
+        // Render to matrix for the transition time
+        unsigned long start = millis();
+        while (millis() - start < (prefTransitionTime * 1000)) {
+            pushCanvasToMatrix();
+            delay(30);
+            server.handleClient();
+        }
+        file.close();
+    }
+}
+
 static void showDateProgress() {
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
