@@ -16,6 +16,7 @@ extern TextBlastWidget textBlastWidget;
 extern LogoWidget logoWidget;
 extern IssLocationWidget issWidget;
 extern PlanesWidget planesWidget;
+extern EarthquakeWidget earthquakeWidget;
 extern GFXcanvas16 widgetCanvas;
 
 extern int prefTransitionTime;
@@ -44,7 +45,7 @@ void drawColorText(GraphicsContext* ctx,
                    const std::string& text,
                    int x,
                    int y,
-                   uint16_t color) override{
+                   uint32_t color) override{
                             widgetCanvas.setTextWrap(false);
         widgetCanvas.setTextSize(1);
         widgetCanvas.setCursor(x, y - 7);
@@ -298,6 +299,16 @@ static void showPlanes() {
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
         planesWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+        pushCanvasToMatrix();
+        delay(30);
+        server.handleClient();
+    }
+}
+
+static void showEarthquakes() {
+    unsigned long start = millis();
+    while (millis() - start < (prefTransitionTime * 1000)) {
+        earthquakeWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
         pushCanvasToMatrix();
         delay(30);
         server.handleClient();

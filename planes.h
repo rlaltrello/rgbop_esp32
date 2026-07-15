@@ -17,6 +17,8 @@ private:
     String displayLoc = "";
     String displayAlt = "";
     String displaySpd = "";
+    String accessToken = "";
+    unsigned long tokenExpiryTime = 0;
 
     // State trackers
     bool hasPlane = false;
@@ -61,6 +63,33 @@ private:
         return "N";
     }
 
+    bool authenticate() {
+    Serial.println("[PLANES] Requesting OAuth2 token...");
+    WiFiClientSecure client;
+    client.setInsecure();
+    
+    HTTPClient http;
+    http.begin(client, "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token");
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    String payload = "grant_type=client_credentials&client_id=" + clientId + "&client_secret=" + clientSecret;
+    int httpCode = http.POST(payload);
+
+    if (httpCode == 200) {
+        DynamicJsonDocument doc(512);
+        deserializeJson(doc, http.getString());
+        accessToken = doc["access_token"].as<String>();
+        int expiresIn = doc["expires_in"].as<int>();
+        tokenExpiryTime = millis() + (expiresIn * 1000) - 60000; // Refresh 1 min early
+        Serial.println("[PLANES] Token acquired.");
+        http.end();
+        return true;
+    }
+    Serial.printf("[PLANES] Auth Error: %d\n", httpCode);
+    http.end();
+    return false;
+}
+
 public:
     void begin(String id, String secret, float lat, float lng, float radiusMiles) {
         clientId = id;
@@ -72,6 +101,13 @@ public:
 
     bool fetchPlanesData() {
         Serial.println("[PLANES] Fetching states from OpenSky...");
+
+        if (accessToken.isEmpty() || millis() >= tokenExpiryTime) {
+        if (!authenticate()) {
+            apiError = true;
+            return true;
+        }
+    }
 
         // NEW: Check for missing credentials immediately and abort if empty
         if (clientId.length() == 0 || clientSecret.length() == 0) {
@@ -88,7 +124,7 @@ public:
                      "&lomin=" + String(myLng - lng_offset, 3) + 
                      "&lamax=" + String(myLat + lat_offset, 3) + 
                      "&lomax=" + String(myLng + lng_offset, 3);
-
+        Serial.println(" URL: " + url);
         bool success = false; // The single-exit variable
 
         WiFiClientSecure *client = new WiFiClientSecure();
@@ -97,8 +133,8 @@ public:
         HTTPClient http;
         http.begin(*client, url);
 
-        // Basic Authentication
-        http.setAuthorization(clientId.c_str(), clientSecret.c_str());
+        String authHeader = "Bearer " + accessToken;
+        http.addHeader("Authorization", authHeader);
 
         int httpCode = http.GET();
         Serial.printf("[PLANES] API HTTP Response Code: %d\n", httpCode);
@@ -116,13 +152,17 @@ public:
             filter["states"][0][10] = true; 
             filter["states"][0][13] = true; 
 
-            JsonDocument doc;
-            DeserializationError error = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+
+        String responseBody = http.getString();
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, responseBody);
+
 
             if (error) {
                 Serial.printf("[PLANES] JSON Parse Failed: %s\n", error.c_str());
             } else {
                 JsonArray states = doc["states"];
+
                 int totalPlanesInBox = states.size();
                 Serial.printf("[PLANES] Found %d total aircraft in the bounding box.\n", totalPlanesInBox);
 
@@ -205,12 +245,12 @@ public:
         ctx->setFillStyle(0x00FFFF); 
         ctx->fillRect(0, 9, width, 1);
 
-        font->drawColorText(ctx, "PLANE TRAX", 2, 8, 0x07FF);
+        font->drawColorText(ctx, "PLANE TRAX", 2, 8, 0x00FFFF);
 
         // NEW: Intercept the screen and show the error in bright red (RGB565 = 0xF800)
         if (apiError) {
-            font->drawColorText(ctx, "CHECK API", 6, 34, 0xF800); 
-            font->drawColorText(ctx, "SETTINGS", 10, 46, 0xF800);
+            font->drawColorText(ctx, "CHECK API", 6, 34, 0xFF0000); 
+            font->drawColorText(ctx, "SETTINGS", 10, 46, 0xFFFF00);
             return;
         }
 

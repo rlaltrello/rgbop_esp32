@@ -12,6 +12,7 @@
 #include "marioFont.h"
 #include "isslocation.h"
 #include "planes.h"
+#include "earthquake.h"
 #include <WebServer.h>
 #include "gifEngine.h"
 #include "webApi.h"
@@ -52,6 +53,7 @@ bool prefShowISS = true;
 bool prefShowPlanes = true;
 bool prefShowTextBlast = true;
 bool prefShowDoodles = true;
+bool prefShowEarthquake = true;
 
 float prefLat = 34.16;
 float prefLng = -84.80;
@@ -87,6 +89,7 @@ TextBlastWidget textBlastWidget;
 LogoWidget logoWidget;
 IssLocationWidget issWidget;
 PlanesWidget planesWidget;
+EarthquakeWidget earthquakeWidget;
 
 bool showMarioNext = true;
 
@@ -240,6 +243,8 @@ void setup() {
   //planesWidget.begin(OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, MY_LAT, MY_LNG, 20.0);
   if (prefShowPlanes) planesWidget.begin(prefOsUser, prefOsPass, prefLat, prefLng, 20.0);
 
+  if (prefShowEarthquake) earthquakeWidget.begin();
+
   // 7. --- START GIF ENGINE ---  
   gif.begin(LITTLE_ENDIAN_PIXELS);
 }
@@ -339,7 +344,7 @@ void handleProvisioning() {
 // ------------------------------------------------------------
 void runWidgetRotation() {
     bool anyWidgetActive = prefShowClock || prefShowDate || prefShowTextBlast || 
-                           prefShowWeather || prefShowISS || prefShowPlanes || prefShowDoodles;
+                           prefShowWeather || prefShowISS || prefShowPlanes || prefShowDoodles || prefShowEarthquake;
 
     if (anyWidgetActive) {
         if (prefShowClock) {
@@ -352,6 +357,7 @@ void runWidgetRotation() {
         if (prefShowWeather) showWeather();      
         if (prefShowISS) showISS();
         if (prefShowPlanes) showPlanes();
+        if (prefShowEarthquake) showEarthquakes();
         if (prefShowDoodles) showDoodles();
     } else {
         showLogo();

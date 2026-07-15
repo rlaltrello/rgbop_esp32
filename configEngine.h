@@ -17,6 +17,7 @@ extern bool prefShowISS;
 extern bool prefShowPlanes;
 extern bool prefShowTextBlast;
 extern bool prefShowDoodles;
+extern bool prefShowEarthquake;
 
 extern float prefLat;
 extern float prefLng;
@@ -58,6 +59,7 @@ static bool loadConfig() {
     prefShowPlanes = doc["planes"] | true;
     prefShowTextBlast = doc["textblast"] | true;
     prefShowDoodles = doc["doodles"] | true;
+    prefShowEarthquake = doc["earthquake"] | true;
 
     prefLat = doc["lat"] | 34.16;
     prefLng = doc["lng"] | -84.80;
@@ -91,6 +93,7 @@ void saveConfig() {
     doc["planes"] = prefShowPlanes;
     doc["textblast"] = prefShowTextBlast;
     doc["doodles"] = prefShowDoodles;
+    doc["earthquake"] = prefShowEarthquake;
 
     doc["lat"] = prefLat;
     doc["lng"] = prefLng;
@@ -144,4 +147,8 @@ void updateBrightness() {
     } else {
         dma_display->setBrightness8(prefBrightness);
     }
+
+      //planesWidget.begin(OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, MY_LAT, MY_LNG, 20.0);
+  if (prefShowPlanes) planesWidget.begin(prefOsUser, prefOsPass, prefLat, prefLng, 20.0);
+  if (prefShowEarthquake) earthquakeWidget.begin();
 }

@@ -7,10 +7,12 @@
 extern bool prefShowWeather;
 extern bool prefShowISS;
 extern bool prefShowPlanes;
+extern bool prefShowEarthquake;
 
 extern WeatherWidget weatherWidget;
 extern IssLocationWidget issWidget;
 extern PlanesWidget planesWidget;
+extern EarthquakeWidget earthquakeWidget;
 
 extern void updateBrightness();
 
@@ -38,6 +40,12 @@ unsigned long lastPlanesFetch = 0;
 unsigned long currentPlanesInterval = 0;
 const unsigned long PLANES_SUCCESS_INTERVAL = 30 * 1000;      // 30 seconds
 const unsigned long PLANES_RETRY_INTERVAL = 15 * 1000;        // 15 seconds
+
+// --- EarthQuake Timers ---
+unsigned long lastEarthquakeFetch = 0;
+unsigned long currentEarthquakeInterval = 0;
+const unsigned long EARTHQUAKE_SUCCESS_INTERVAL = 3 * 60 * 1000;      // 3 minutes
+const unsigned long EARTHQUAKE_RETRY_INTERVAL = 15 * 1000;        // 15 seconds
 
 // ------------------------------------------------------------
 // NETWORK MAINTENANCE LOOP
@@ -100,6 +108,16 @@ static void maintainNetwork() {
                 currentPlanesInterval = PLANES_RETRY_INTERVAL;   
             }
             lastPlanesFetch = millis(); 
+        }
+
+                // --- Check Planes ---
+        if (prefShowEarthquake && (now - lastEarthquakeFetch >= currentEarthquakeInterval || lastEarthquakeFetch == 0)) {
+            if (earthquakeWidget.fetchData()) {
+                currentEarthquakeInterval = EARTHQUAKE_SUCCESS_INTERVAL; 
+            } else {
+                currentEarthquakeInterval = EARTHQUAKE_RETRY_INTERVAL;   
+            }
+            lastEarthquakeFetch = millis(); 
         }
     }
 }

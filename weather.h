@@ -23,7 +23,7 @@ public:
                            const std::string& text,
                            int x,
                            int y,
-                           uint16_t color) = 0;
+                           uint32_t color) = 0;
 
     virtual int getTextWidth(const std::string& text) = 0;
 };
