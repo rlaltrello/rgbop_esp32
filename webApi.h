@@ -16,6 +16,7 @@ extern bool prefShowDate;
 extern bool prefShowWeather;
 extern bool prefShowISS;
 extern bool prefShowPlanes;
+extern bool prefShowEarthquake;
 extern bool prefShowTextBlast;
 extern float prefLat;
 extern float prefLng;
@@ -92,7 +93,7 @@ static void setupWebRoutes() {
         if (doc.containsKey("weather")) prefShowWeather = doc["weather"];
         if (doc.containsKey("iss")) prefShowISS = doc["iss"];
         if (doc.containsKey("planes")) prefShowPlanes = doc["planes"];
-        if (doc.containsKey("earthquake")) prefShowPlanes = doc["earthquake"];
+        if (doc.containsKey("earthquake")) prefShowEarthquake = doc["earthquake"];
         if (doc.containsKey("textblast")) prefShowTextBlast = doc["textblast"];
         if (doc.containsKey("lat")) prefLat = doc["lat"];
         if (doc.containsKey("lng")) prefLng = doc["lng"];

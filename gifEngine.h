@@ -38,7 +38,8 @@ static void GIFCloseFile(void* pHandle) {
 static int32_t GIFReadFile(GIFFILE* pFile, uint8_t* pBuf, int32_t iLen) {
     File* f = static_cast<File*>(pFile->fHandle);
     int32_t remaining = pFile->iSize - pFile->iPos;
-    if (remaining < iLen) iLen = remaining - 1;
+
+    if (remaining < iLen) iLen = remaining;
     if (iLen <= 0) return 0;
 
     int32_t bytesRead = f->read(pBuf, iLen);
@@ -110,8 +111,10 @@ static void GIFDraw(GIFDRAW* pDraw) {
 static void playGIF(const char* path, uint32_t durationMs = 10000) {
     gifStartTick = millis();
 
-    if (!gif.open(path, GIFOpenFile, GIFCloseFile, GIFReadFile, GIFSeekFile, GIFDraw))
+    if (!gif.open(path, GIFOpenFile, GIFCloseFile, GIFReadFile, GIFSeekFile, GIFDraw)) {
+        Serial.printf("[GIF] Failed to open %s\n", path);
         return;
+    }
 
     x_offset = (dma_display->width() - gif.getCanvasWidth()) / 2;
     if (x_offset < 0) x_offset = 0;
