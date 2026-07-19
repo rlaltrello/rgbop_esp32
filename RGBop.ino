@@ -339,12 +339,17 @@ void handleProvisioning() {
     delay(30); 
 }
 
+static inline bool hasNonGifWidgetsEnabled() {
+    return prefShowClock || prefShowDate || prefShowTextBlast ||
+           prefShowWeather || prefShowISS || prefShowPlanes ||
+           prefShowDoodles || prefShowEarthquake;
+}
+
 // ------------------------------------------------------------
-// HELPER: Widget Rotation
+// Widget Rotation
 // ------------------------------------------------------------
 void runWidgetRotation() {
-    bool anyWidgetActive = prefShowClock || prefShowDate || prefShowTextBlast || 
-                           prefShowWeather || prefShowISS || prefShowPlanes || prefShowDoodles || prefShowEarthquake;
+    bool anyWidgetActive = hasNonGifWidgetsEnabled();
 
     if (anyWidgetActive) {
         if (prefShowClock) {
@@ -392,7 +397,10 @@ void playGifSequence() {
                 break;
             }   
         
-            runWidgetRotation();
+            //runWidgetRotation();
+            // Only interleave widgets if at least one non-GIF widget is enabled.
+            if (hasNonGifWidgetsEnabled()) {
+                runWidgetRotation();            }
         }
         currentFile.close();
         currentFile = root.openNextFile();
