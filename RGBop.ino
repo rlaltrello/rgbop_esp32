@@ -22,6 +22,7 @@
 #include "bleEngine.h"
 #include "hardwareEngine.h"
 #include "networkEngine.h"
+#include <esp_mac.h>
 
 #define SPIRAM_DMA_BUFFER 1
 #include "FS.h"
@@ -165,6 +166,18 @@ void syncTimeWithLocation() {
     configTzTime("EST5EDT,M3.2.0,M11.1.0", "pool.ntp.org", "time.nist.gov");
 }
 
+char mdnsHost[20]; // "rgbop-" + 6 hex chars + '\0'
+
+void buildHostName() {
+
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA); // unique per board STA interface
+  snprintf(mdnsHost, sizeof(mdnsHost),
+"rgbop-%02X%02X%02X", mac[3], mac[4], mac[5]);
+
+}
+
+
 /************************* Arduino Sketch Setup and Loop() *******************************/
 void setup() {
   Serial.begin(115200);
@@ -232,9 +245,13 @@ void setup() {
       
       setupWebRoutes();
       // -------------------------------------------
-      if (MDNS.begin("rgbop")) {
-          Serial.println("[mDNS] Responder started. I am now rgbop.local!");
-          MDNS.addService("http", "tcp", 80); // Helps Flutter find the web server
+      buildHostName();
+
+      if (MDNS.begin(mdnsHost)) {
+         Serial.printf("[mDNS] Responder started: %s.local\n", mdnsHost);
+         MDNS.addService("http", "tcp", 80);
+      } else {
+        Serial.println("[mDNS] Failed to start responder");
       }
   }
 
@@ -308,11 +325,14 @@ void handleProvisioning() {
         if (WiFi.status() == WL_CONNECTED) {
             Serial.println("Connection Successful!");
             saveConfig(); 
-            setupWebRoutes();
 
-            if (MDNS.begin("rgbop")) {
-                Serial.println("[mDNS] Responder started. I am now rgbop.local!");
-                MDNS.addService("http", "tcp", 80); 
+            setupWebRoutes();
+            buildHostName();
+            if (MDNS.begin(mdnsHost)) {
+                Serial.printf("[mDNS] Responder started: %s.local\n", mdnsHost);
+                MDNS.addService("http", "tcp", 80);
+            } else {
+               Serial.println("[mDNS] Failed to start responder");
             }
             
             dma_display->clearScreen();

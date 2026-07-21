@@ -170,6 +170,20 @@ static void setupWebRoutes() {
         server.send(200, "application/json", response);
     });
 
+    server.on("/api/fs/info", HTTP_GET, []() {
+        size_t total = LittleFS.totalBytes();
+        size_t used = LittleFS.usedBytes();
+
+        JsonDocument doc;
+        doc["total"] = total;
+        doc["used"] = used;
+        doc["free"] = total - used;
+
+        String response;
+        serializeJson(doc, response);
+        server.send(200, "application/json", response);
+    });
+
  // --- DOWNLOAD DOODLE ---
     server.on("/api/doodle/download", HTTP_GET, []() {
         if (!server.hasArg("name")) {
@@ -292,6 +306,28 @@ server.on("/api/doodle/clear", HTTP_POST, []() {
             server.send(500, "application/json", "{\"error\":\"Failed to delete file\"}");
         }
     });
+
+        // --- CLEAR ALL GIFS ---
+server.on("/api/gifs/clear", HTTP_POST, []() {
+    File root = LittleFS.open(gifDir);
+    if (!root || !root.isDirectory()) {
+        server.send(404, "application/json", "{\"error\":\"Directory not found\"}");
+        return;
+    }
+
+    File file = root.openNextFile();
+    while (file) {
+        String fileName = file.name();
+        String path = gifDir + fileName;
+        file.close(); // Close before deleting
+        LittleFS.remove(path);
+        file = root.openNextFile();
+    }
+    root.close();
+    
+    Serial.println("[API] GIF directory cleared.");
+    server.send(200, "application/json", "{\"status\":\"success\",\"message\":\"Directory cleared\"}");
+});
 
     // --- TOGGLE GIF ENABLE ---
     server.on("/api/gifs/toggle", HTTP_POST, []() {
