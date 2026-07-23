@@ -240,28 +240,59 @@ static void setupWebRoutes() {
         }
     });
 
-    // --- CLEAR ALL DOODLES ---
+// --- CLEAR ALL DOODLES ---
 server.on("/api/doodle/clear", HTTP_POST, []() {
+    // Close any pending upload handle first
+    if (fsUploadFile) {
+        fsUploadFile.close();
+        Serial.println("[API] Force closed pending upload handle.");
+    }
+
+    // If you have another global file handle for active doodle playback,
+    // close it here too before deletion.
+
     File root = LittleFS.open("/doodles");
     if (!root || !root.isDirectory()) {
         server.send(404, "application/json", "{\"error\":\"Directory not found\"}");
         return;
     }
 
+    int deleted = 0;
+    int failed = 0;
+
     File file = root.openNextFile();
     while (file) {
-        String fileName = file.name();
-        String path = "/doodles/" + fileName;
-        file.close(); // Close before deleting
-        LittleFS.remove(path);
+        String fileName = String(file.name());
+        file.close(); // close iterator handle before remove
+
+        // Normalize path: supports both bare names and absolute paths
+        String path = fileName.startsWith("/")
+            ? fileName
+            : (String("/doodles/") + fileName);
+
+        bool ok = LittleFS.remove(path);
+        if (!ok) {
+            // Small retry for transient lock timing
+            delay(10);
+            ok = LittleFS.remove(path);
+        }
+
+        if (ok) {
+            deleted++;
+        } else {
+            failed++;
+            Serial.printf("[API] Failed to remove: %s\n", path.c_str());
+        }
+
         file = root.openNextFile();
     }
-    root.close();
-    
-    Serial.println("[API] Doodles directory cleared.");
-    server.send(200, "application/json", "{\"status\":\"success\",\"message\":\"Directory cleared\"}");
-});
 
+    root.close();
+
+    Serial.printf("[API] Doodles directory cleared. Deleted: %d, Failed: %d\n", deleted, failed);
+    server.send(200, "application/json",
+                "{\"status\":\"success\",\"message\":\"Directory cleared\"}");
+});
     // --- LIST GIFS ---
     server.on("/api/gifs", HTTP_GET, []() {
         File root = LittleFS.open(gifDir);
@@ -307,7 +338,7 @@ server.on("/api/doodle/clear", HTTP_POST, []() {
         }
     });
 
-        // --- CLEAR ALL GIFS ---
+ // --- CLEAR ALL GIFS ---
 server.on("/api/gifs/clear", HTTP_POST, []() {
     File root = LittleFS.open(gifDir);
     if (!root || !root.isDirectory()) {
@@ -315,17 +346,31 @@ server.on("/api/gifs/clear", HTTP_POST, []() {
         return;
     }
 
+    int deleted = 0;
+    int failed = 0;
+
     File file = root.openNextFile();
     while (file) {
-        String fileName = file.name();
-        String path = gifDir + fileName;
-        file.close(); // Close before deleting
-        LittleFS.remove(path);
+        String fileName = String(file.name());
+        file.close(); // close before delete
+
+        // If file.name() is bare ("foo.gif"), prepend gifDir.
+        // If it is already absolute ("/gifs/foo.gif"), keep as-is.
+        String path = fileName.startsWith("/") ? fileName : (String(gifDir) + "/" + fileName);
+
+        if (LittleFS.remove(path)) {
+            deleted++;
+        } else {
+            failed++;
+            Serial.printf("[API] Failed to remove: %s\n", path.c_str());
+        }
+
         file = root.openNextFile();
     }
+
     root.close();
-    
-    Serial.println("[API] GIF directory cleared.");
+
+    Serial.printf("[API] GIF directory cleared. Deleted: %d, Failed: %d\n", deleted, failed);
     server.send(200, "application/json", "{\"status\":\"success\",\"message\":\"Directory cleared\"}");
 });
 
