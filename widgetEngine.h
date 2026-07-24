@@ -17,9 +17,11 @@ extern LogoWidget logoWidget;
 extern IssLocationWidget issWidget;
 extern PlanesWidget planesWidget;
 extern EarthquakeWidget earthquakeWidget;
+extern SpotifyWidget spotifyWidget;
 extern GFXcanvas16 widgetCanvas;
 
 extern int prefTransitionTime;
+extern String prefSpotifyRefreshToken;
 
 // Mario font provided by main.ino
 extern CustomMarioFont myMarioFont;
@@ -309,6 +311,30 @@ static void showEarthquakes() {
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
         earthquakeWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+        pushCanvasToMatrix();
+        delay(30);
+        server.handleClient();
+    }
+}
+
+
+static void showSpotify() {
+    // 1. Fetch current track, progress, and 64x48 album art from VPS
+    
+    //spotifyWidget.begin("AQAYtmv8TAhMS2HuwBQVlnH_ahmOIHc9fkVeDmzQgjKGKOgeUeonpYq_ntYSRK0prbSduVTfmTFixUpaWi-qxWPRbO8z9F8rQ5QwV7Wgg9YNVqG2PjNX-T6w-T8PNMo5JW8");
+    spotifyWidget.begin(prefSpotifyRefreshToken);
+    spotifyWidget.fetchSpotifyStatus();
+    // 2. Reset scroll position and cycle counters
+    spotifyWidget.resetScroll(64);
+
+    unsigned long start = millis();
+    bool done = false;
+
+    // 3. Render loop until configured scroll cycles complete (or 60s timeout)
+    while (!done && millis() - start < 60000) {
+        // Draw returns true once scrollX passes the text width targetCycles times
+        done = spotifyWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+        
         pushCanvasToMatrix();
         delay(30);
         server.handleClient();

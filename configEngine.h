@@ -18,12 +18,15 @@ extern bool prefShowPlanes;
 extern bool prefShowTextBlast;
 extern bool prefShowDoodles;
 extern bool prefShowEarthquake;
+extern bool prefShowSpotify;
 
 extern float prefLat;
 extern float prefLng;
 
 extern String prefOsUser;
 extern String prefOsPass;
+
+extern String prefSpotifyRefreshToken;
 
 extern int prefBrightness;
 extern bool prefNightMode;
@@ -60,12 +63,16 @@ static bool loadConfig() {
     prefShowTextBlast = doc["textblast"] | true;
     prefShowDoodles = doc["doodles"] | true;
     prefShowEarthquake = doc["earthquake"] | true;
+    prefShowSpotify = doc["spotify"] | true;
 
     prefLat = doc["lat"] | 34.16;
     prefLng = doc["lng"] | -84.80;
 
     prefOsUser = doc["osUser"] | "";
     prefOsPass = doc["osPass"] | "";
+
+    prefSpotifyRefreshToken = doc["spotifyRefreshToken"] | "";
+
 
     prefBrightness = doc["brightness"] | 128;
     prefNightMode = doc["nightMode"] | false;
@@ -94,12 +101,15 @@ void saveConfig() {
     doc["textblast"] = prefShowTextBlast;
     doc["doodles"] = prefShowDoodles;
     doc["earthquake"] = prefShowEarthquake;
+    doc["spotify"] = prefShowSpotify;
 
     doc["lat"] = prefLat;
     doc["lng"] = prefLng;
 
     doc["osUser"] = prefOsUser;
     doc["osPass"] = prefOsPass;
+
+    doc["spotifyRefreshToken"] = prefSpotifyRefreshToken;
 
     doc["brightness"] = prefBrightness;
     doc["nightMode"] = prefNightMode;
@@ -150,5 +160,6 @@ void updateBrightness() {
 
       //planesWidget.begin(OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, MY_LAT, MY_LNG, 20.0);
   if (prefShowPlanes) planesWidget.begin(prefOsUser, prefOsPass, prefLat, prefLng, 20.0);
+  if (prefShowSpotify) spotifyWidget.begin (prefSpotifyRefreshToken);
   if (prefShowEarthquake) earthquakeWidget.begin();
 }

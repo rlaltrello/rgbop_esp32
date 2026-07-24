@@ -17,11 +17,13 @@ extern bool prefShowWeather;
 extern bool prefShowISS;
 extern bool prefShowPlanes;
 extern bool prefShowEarthquake;
+extern bool prefShowSpotify;
 extern bool prefShowTextBlast;
 extern float prefLat;
 extern float prefLng;
 extern String prefOsUser;
 extern String prefOsPass;
+extern String prefSpotifyRefreshToken;
 extern int prefBrightness;
 extern bool prefNightMode;
 extern int prefNightStart;
@@ -56,11 +58,13 @@ static void setupWebRoutes() {
         doc["iss"] = prefShowISS;
         doc["planes"] = prefShowPlanes;
         doc["earthquake"] = prefShowEarthquake;
+        doc["spotify"] = prefShowSpotify;
         doc["textblast"] = prefShowTextBlast;
         doc["lat"] = prefLat;
         doc["lng"] = prefLng;
         doc["osUser"] = prefOsUser;
         doc["osPass"] = prefOsPass;
+        doc["spotifyRefreshToken"] = prefSpotifyRefreshToken;
         doc["brightness"] = prefBrightness;
         doc["nightMode"] = prefNightMode;
         doc["nightStart"] = prefNightStart;
@@ -94,11 +98,15 @@ static void setupWebRoutes() {
         if (doc.containsKey("iss")) prefShowISS = doc["iss"];
         if (doc.containsKey("planes")) prefShowPlanes = doc["planes"];
         if (doc.containsKey("earthquake")) prefShowEarthquake = doc["earthquake"];
+        if (doc.containsKey("spotify")) prefShowSpotify = doc["spotify"];
         if (doc.containsKey("textblast")) prefShowTextBlast = doc["textblast"];
         if (doc.containsKey("lat")) prefLat = doc["lat"];
         if (doc.containsKey("lng")) prefLng = doc["lng"];
         if (doc.containsKey("osUser")) prefOsUser = doc["osUser"].as<String>();
         if (doc.containsKey("osPass")) prefOsPass = doc["osPass"].as<String>();
+
+        if (doc.containsKey("spotifyRefreshToken")) prefSpotifyRefreshToken = doc["spotifyRefreshToken"].as<String>();
+
         if (doc.containsKey("brightness")) prefBrightness = doc["brightness"];
         if (doc.containsKey("nightMode")) prefNightMode = doc["nightMode"];
         if (doc.containsKey("nightStart")) prefNightStart = doc["nightStart"];

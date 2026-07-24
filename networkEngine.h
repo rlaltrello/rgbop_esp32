@@ -8,6 +8,7 @@ extern bool prefShowWeather;
 extern bool prefShowISS;
 extern bool prefShowPlanes;
 extern bool prefShowEarthquake;
+extern bool prefShowSpotify;
 
 extern WeatherWidget weatherWidget;
 extern IssLocationWidget issWidget;
@@ -47,32 +48,37 @@ unsigned long currentEarthquakeInterval = 0;
 const unsigned long EARTHQUAKE_SUCCESS_INTERVAL = 3 * 60 * 1000;      // 3 minutes
 const unsigned long EARTHQUAKE_RETRY_INTERVAL = 15 * 1000;        // 15 seconds
 
+
+
 // ------------------------------------------------------------
 // NETWORK MAINTENANCE LOOP
 // ------------------------------------------------------------
 static void maintainNetwork() {
+    updateBrightness();
     unsigned long now = millis();
 
-    // 1. WiFi Watchdog
-    if (now - lastWatchdogCheck > 3000) {
-        lastWatchdogCheck = now;
+    static unsigned long lastReconnectAttempt = 0;
+    
+    if (WiFi.status() != WL_CONNECTED) {
+        if (wifiConnected) {
+            Serial.println("[WIFI] Connection lost!");
+            wifiConnected = false;
+            wsConnected = false;
+        }
 
-        updateBrightness();
-
-        if (WiFi.status() != WL_CONNECTED) {
-            if (wifiConnected) {
-                Serial.println("[WIFI] Lost! Reconnecting...");
-                wifiConnected = false;
-                wsConnected = false;
-            }
+        // Only attempt to reconnect every 10 seconds, giving the radio time to finish
+        if (millis() - lastReconnectAttempt >= 10000) {
+            lastReconnectAttempt = millis();
+            Serial.println("[WIFI] Attempting reconnect...");
             WiFi.disconnect();
             WiFi.reconnect();
-        } else {
-            if (!wifiConnected) {
-                Serial.println("[WIFI] Reconnected.");
-                Serial.println(WiFi.localIP());
-                wifiConnected = true;
-            }
+        }
+    } else {
+        if (!wifiConnected) {
+            Serial.println("[WIFI] Reconnected!");
+            Serial.print("[WIFI] IP: ");
+            Serial.println(WiFi.localIP());
+            wifiConnected = true;
         }
     }
 

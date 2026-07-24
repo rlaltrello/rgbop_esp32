@@ -13,6 +13,7 @@
 #include "isslocation.h"
 #include "planes.h"
 #include "earthquake.h"
+#include "spotify.h"
 #include <WebServer.h>
 #include "gifEngine.h"
 #include "webApi.h"
@@ -55,12 +56,15 @@ bool prefShowPlanes = true;
 bool prefShowTextBlast = true;
 bool prefShowDoodles = true;
 bool prefShowEarthquake = true;
+bool prefShowSpotify = true;
 
 float prefLat = 34.16;
 float prefLng = -84.80;
 
 String prefOsUser = "";
 String prefOsPass = "";
+
+String prefSpotifyRefreshToken = "";
 
 int prefBrightness = 128;
 bool prefNightMode = false;
@@ -91,6 +95,7 @@ LogoWidget logoWidget;
 IssLocationWidget issWidget;
 PlanesWidget planesWidget;
 EarthquakeWidget earthquakeWidget;
+SpotifyWidget spotifyWidget;
 
 bool showMarioNext = true;
 
@@ -260,6 +265,8 @@ void setup() {
   //planesWidget.begin(OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, MY_LAT, MY_LNG, 20.0);
   if (prefShowPlanes) planesWidget.begin(prefOsUser, prefOsPass, prefLat, prefLng, 20.0);
 
+  //if (prefShowSpotify) spotifyWidget.begin("060f37a1928a4b189785df59c90fda15","5546d8579cda460cb02c2c5b15f744e2","AQAYtmv8TAhMS2HuwBQVlnH_ahmOIHc9fkVeDmzQgjKGKOgeUeonpYq_ntYSRK0prbSduVTfmTFixUpaWi-qxWPRbO8z9F8rQ5QwV7Wgg9YNVqG2PjNX-T6w-T8PNMo5JW8");
+  if (prefShowSpotify) spotifyWidget.begin (prefSpotifyRefreshToken);
   if (prefShowEarthquake) earthquakeWidget.begin();
 
   // 7. --- START GIF ENGINE ---  
@@ -362,7 +369,7 @@ void handleProvisioning() {
 static inline bool hasNonGifWidgetsEnabled() {
     return prefShowClock || prefShowDate || prefShowTextBlast ||
            prefShowWeather || prefShowISS || prefShowPlanes ||
-           prefShowDoodles || prefShowEarthquake;
+           prefShowDoodles || prefShowEarthquake || prefShowSpotify;
 }
 
 // ------------------------------------------------------------
@@ -383,6 +390,7 @@ void runWidgetRotation() {
         if (prefShowISS) showISS();
         if (prefShowPlanes) showPlanes();
         if (prefShowEarthquake) showEarthquakes();
+        if (prefShowSpotify) showSpotify();
         if (prefShowDoodles) showDoodles();
     } else {
         showLogo();
