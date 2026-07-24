@@ -12,8 +12,10 @@
 #include "marioFont.h"
 #include "isslocation.h"
 #include "planes.h"
+#include "radar.h"
 #include "earthquake.h"
 #include "spotify.h"
+#include "diags.h"
 #include <WebServer.h>
 #include "gifEngine.h"
 #include "webApi.h"
@@ -37,6 +39,8 @@
 #define CHAR_UUID_PASS    "beb5483e-36e1-4688-b7f5-ea07361b26a9"
 #define CHAR_UUID_CMD     "beb5483e-36e1-4688-b7f5-ea07361b26aa"
 
+
+
 // --- DYNAMIC CREDENTIALS & STATE ---
 String currentSSID = "";
 String currentPASS = "";
@@ -57,9 +61,15 @@ bool prefShowTextBlast = true;
 bool prefShowDoodles = true;
 bool prefShowEarthquake = true;
 bool prefShowSpotify = true;
+bool prefShowDiags = true;
+bool prefShowRadar = true;
 
 float prefLat = 34.16;
 float prefLng = -84.80;
+
+int prefRadarZoomLevel = 7;
+RadarTimeFormat prefRadarTimeFormat = RadarTimeFormat::FORMAT_12H;
+RadarUnitFormat prefRadarUnitFormat = RadarUnitFormat::MI;
 
 String prefOsUser = "";
 String prefOsPass = "";
@@ -96,6 +106,8 @@ IssLocationWidget issWidget;
 PlanesWidget planesWidget;
 EarthquakeWidget earthquakeWidget;
 SpotifyWidget spotifyWidget;
+DiagWidget diagWidget;
+RadarWidget radarWidget;
 
 bool showMarioNext = true;
 
@@ -369,7 +381,8 @@ void handleProvisioning() {
 static inline bool hasNonGifWidgetsEnabled() {
     return prefShowClock || prefShowDate || prefShowTextBlast ||
            prefShowWeather || prefShowISS || prefShowPlanes ||
-           prefShowDoodles || prefShowEarthquake || prefShowSpotify;
+           prefShowDoodles || prefShowEarthquake || prefShowSpotify || 
+           prefShowDiags || prefShowRadar;
 }
 
 // ------------------------------------------------------------
@@ -392,6 +405,8 @@ void runWidgetRotation() {
         if (prefShowEarthquake) showEarthquakes();
         if (prefShowSpotify) showSpotify();
         if (prefShowDoodles) showDoodles();
+        if (prefShowDiags) showDiags();
+        if (prefShowRadar) showRadar();
     } else {
         showLogo();
     }

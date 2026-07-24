@@ -19,9 +19,16 @@ extern bool prefShowTextBlast;
 extern bool prefShowDoodles;
 extern bool prefShowEarthquake;
 extern bool prefShowSpotify;
+extern bool prefShowDiags;
+extern bool prefShowRadar;
 
 extern float prefLat;
 extern float prefLng;
+
+
+extern int prefRadarZoomLevel;
+extern RadarTimeFormat prefRadarTimeFormat;
+extern RadarUnitFormat prefRadarUnitFormat;
 
 extern String prefOsUser;
 extern String prefOsPass;
@@ -44,12 +51,18 @@ extern MatrixPanel_I2S_DMA* dma_display;
 // ------------------------------------------------------------
 static bool loadConfig() {
     File file = LittleFS.open("/config.json", "r");
-    if (!file) return false;
+    if (!file) {
+        Serial.println("[FS] Warning: Failed to open /config.json for reading");
+        return false;
+    }
 
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, file);
     file.close();
-    if (err) return false;
+    if (err) {
+        Serial.printf("[FS] Error: JSON deserialization failed (%s)\n", err.c_str());
+        return false;
+    }
 
     currentSSID = doc["ssid"] | "";
     currentPASS = doc["password"] | "";
@@ -64,15 +77,38 @@ static bool loadConfig() {
     prefShowDoodles = doc["doodles"] | true;
     prefShowEarthquake = doc["earthquake"] | true;
     prefShowSpotify = doc["spotify"] | true;
-
+    prefShowDiags = doc["diags"] | true;
+    prefShowRadar = doc["radar"] | true;
+ 
     prefLat = doc["lat"] | 34.16;
     prefLng = doc["lng"] | -84.80;
+
+    // Flexible Time Format parsing (handles "12H", "FORMAT_12H", "24H", etc.)
+    const char* tfStr = doc["radarTimeFormat"] | "FORMAT_12H";
+    if (strstr(tfStr, "12H") != NULL) {
+        prefRadarTimeFormat = RadarTimeFormat::FORMAT_12H;
+    } else if (strstr(tfStr, "24H") != NULL) {
+        prefRadarTimeFormat = RadarTimeFormat::FORMAT_24H;
+    } else {
+        prefRadarTimeFormat = RadarTimeFormat::OFF;
+    }
+
+    // Flexible Unit Format parsing (handles "MI", "KM", "OFF")
+    const char* ufStr = doc["radarUnitFormat"] | "MI";
+    if (strcmp(ufStr, "MI") == 0) {
+        prefRadarUnitFormat = RadarUnitFormat::MI;
+    } else if (strcmp(ufStr, "KM") == 0) {
+        prefRadarUnitFormat = RadarUnitFormat::KM;
+    } else {
+        prefRadarUnitFormat = RadarUnitFormat::OFF;
+    }
+
+    prefRadarZoomLevel = doc["radarZoomLevel"] | 7;
 
     prefOsUser = doc["osUser"] | "";
     prefOsPass = doc["osPass"] | "";
 
     prefSpotifyRefreshToken = doc["spotifyRefreshToken"] | "";
-
 
     prefBrightness = doc["brightness"] | 128;
     prefNightMode = doc["nightMode"] | false;
@@ -80,7 +116,14 @@ static bool loadConfig() {
     prefNightEnd = doc["nightEnd"] | 6;
     prefTransitionTime = doc["transitionTime"] | 10;
 
-    return (currentSSID.length() > 0);
+    // IMPORTANT: Apply loaded preferences directly to the radar widget instance
+    radarWidget.setLocation(prefLat, prefLng);
+    radarWidget.setZoomLevel(prefRadarZoomLevel);
+    radarWidget.setTimeFormat(prefRadarTimeFormat);
+    radarWidget.setUnitFormat(prefRadarUnitFormat);
+
+    Serial.println("[FS] Configuration loaded and applied successfully.");
+    return true; // Return true because config file loaded successfully
 }
 
 // ------------------------------------------------------------
@@ -102,9 +145,21 @@ void saveConfig() {
     doc["doodles"] = prefShowDoodles;
     doc["earthquake"] = prefShowEarthquake;
     doc["spotify"] = prefShowSpotify;
+    doc["diags"] = prefShowDiags;
+    doc["radar"] = prefShowRadar;
 
     doc["lat"] = prefLat;
     doc["lng"] = prefLng;
+
+    if (prefRadarTimeFormat == RadarTimeFormat::FORMAT_12H)      doc["radarTimeFormat"] = "FORMAT_12H";
+    else if (prefRadarTimeFormat == RadarTimeFormat::FORMAT_24H) doc["radarTimeFormat"] = "FORMAT_24H";
+    else                                                         doc["radarTimeFormat"] = "OFF";
+
+    if (prefRadarUnitFormat == RadarUnitFormat::MI)      doc["radarUnitFormat"] = "MI";
+    else if (prefRadarUnitFormat == RadarUnitFormat::KM) doc["radarUnitFormat"] = "KM";
+    else                                                 doc["radarUnitFormat"] = "OFF";
+
+    doc["radarZoomLevel"] = prefRadarZoomLevel;
 
     doc["osUser"] = prefOsUser;
     doc["osPass"] = prefOsPass;

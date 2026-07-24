@@ -18,9 +18,11 @@ extern bool prefShowISS;
 extern bool prefShowPlanes;
 extern bool prefShowEarthquake;
 extern bool prefShowSpotify;
+extern bool prefShowDiags;
 extern bool prefShowTextBlast;
 extern float prefLat;
 extern float prefLng;
+extern bool prefShowRadar;
 extern String prefOsUser;
 extern String prefOsPass;
 extern String prefSpotifyRefreshToken;
@@ -59,6 +61,7 @@ static void setupWebRoutes() {
         doc["planes"] = prefShowPlanes;
         doc["earthquake"] = prefShowEarthquake;
         doc["spotify"] = prefShowSpotify;
+        doc["diags"] = prefShowDiags;
         doc["textblast"] = prefShowTextBlast;
         doc["lat"] = prefLat;
         doc["lng"] = prefLng;
@@ -71,6 +74,16 @@ static void setupWebRoutes() {
         doc["nightEnd"] = prefNightEnd;
         doc["transitionTime"] = prefTransitionTime;
         doc["doodles"] = prefShowDoodles;
+        doc["radar"] = prefShowRadar;
+        doc["radarZoomLevel"] = prefRadarZoomLevel;
+
+        if (prefRadarTimeFormat == RadarTimeFormat::FORMAT_12H)      doc["radarTimeFormat"] = "FORMAT_12H";
+        else if (prefRadarTimeFormat == RadarTimeFormat::FORMAT_24H) doc["radarTimeFormat"] = "FORMAT_24H";
+        else                                                         doc["radarTimeFormat"] = "OFF";
+
+        if (prefRadarUnitFormat == RadarUnitFormat::MI)      doc["radarUnitFormat"] = "MI";
+        else if (prefRadarUnitFormat == RadarUnitFormat::KM) doc["radarUnitFormat"] = "KM";
+        else                                                 doc["radarUnitFormat"] = "OFF";
 
         String response;
         serializeJson(doc, response);
@@ -99,6 +112,7 @@ static void setupWebRoutes() {
         if (doc.containsKey("planes")) prefShowPlanes = doc["planes"];
         if (doc.containsKey("earthquake")) prefShowEarthquake = doc["earthquake"];
         if (doc.containsKey("spotify")) prefShowSpotify = doc["spotify"];
+        if (doc.containsKey("diags")) prefShowDiags = doc["diags"];
         if (doc.containsKey("textblast")) prefShowTextBlast = doc["textblast"];
         if (doc.containsKey("lat")) prefLat = doc["lat"];
         if (doc.containsKey("lng")) prefLng = doc["lng"];
@@ -113,6 +127,22 @@ static void setupWebRoutes() {
         if (doc.containsKey("nightEnd")) prefNightEnd = doc["nightEnd"];
         if (doc.containsKey("transitionTime")) prefTransitionTime = doc["transitionTime"];
         if (doc.containsKey("doodles")) prefShowDoodles = doc["doodles"];
+        if (doc.containsKey("radar")) prefShowRadar = doc["radar"];
+        if (doc.containsKey("radarZoomLevel")) prefRadarZoomLevel = doc["radarZoomLevel"].as<int>();
+
+        if (doc.containsKey("radarTimeFormat")) {
+            const char* tfStr = doc["radarTimeFormat"] | "FORMAT_12H";
+            if (strstr(tfStr, "12") != NULL)      prefRadarTimeFormat = RadarTimeFormat::FORMAT_12H;
+            else if (strstr(tfStr, "24") != NULL) prefRadarTimeFormat = RadarTimeFormat::FORMAT_24H;
+            else                                 prefRadarTimeFormat = RadarTimeFormat::OFF;
+        }
+
+        if (doc.containsKey("radarUnitFormat")) {
+            const char* ufStr = doc["radarUnitFormat"] | "MI";
+            if (strcmp(ufStr, "MI") == 0)      prefRadarUnitFormat = RadarUnitFormat::MI;
+            else if (strcmp(ufStr, "KM") == 0) prefRadarUnitFormat = RadarUnitFormat::KM;
+            else                               prefRadarUnitFormat = RadarUnitFormat::OFF;
+        }
 
         updateBrightness();
         syncTimeWithLocation();

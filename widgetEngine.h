@@ -18,6 +18,8 @@ extern IssLocationWidget issWidget;
 extern PlanesWidget planesWidget;
 extern EarthquakeWidget earthquakeWidget;
 extern SpotifyWidget spotifyWidget;
+extern DiagWidget diagWidget;
+extern RadarWidget radarWidget;
 extern GFXcanvas16 widgetCanvas;
 
 extern int prefTransitionTime;
@@ -311,6 +313,37 @@ static void showEarthquakes() {
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
         earthquakeWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+        pushCanvasToMatrix();
+        delay(30);
+        server.handleClient();
+    }
+}
+
+static void showRadar() {
+    radarWidget.setLocation(prefLat, prefLng);
+    radarWidget.setZoomLevel(prefRadarZoomLevel);
+    radarWidget.setTimeFormat(prefRadarTimeFormat);
+    radarWidget.setUnitFormat(prefRadarUnitFormat);
+    radarWidget.setFrameDelay(200); // 200ms per animation step
+    radarWidget.syncConfig();
+    radarWidget.fetch();
+    unsigned long start = millis();
+    while (millis() - start < (prefTransitionTime * 1000)) {
+        radarWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+        pushCanvasToMatrix();
+        delay(30);
+        server.handleClient();
+    }
+}
+
+static void showDiags() {
+    unsigned long start = millis();
+    bool done = false;
+
+    while (!done && millis() - start < 60000) {
+        // Pass elapsed time (millis() - start) instead of raw millis()
+        done = diagWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis() - start);
+        
         pushCanvasToMatrix();
         delay(30);
         server.handleClient();
