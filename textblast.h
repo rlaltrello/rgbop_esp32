@@ -17,7 +17,7 @@ private:
     int targetCycles = 1; 
     int currentCycles = 0; 
     
-    float scrollX = 64.0;
+    float scrollX = 128.0;
     int textWidth = 0;
     unsigned long lastUpdateMs = 0;
 

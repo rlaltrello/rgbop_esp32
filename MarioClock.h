@@ -176,7 +176,7 @@ namespace MarioClock {
     int cloud2_y = 7;
 
     // ==========================================
-    // THE MAGIC: Create a 64x64 off-screen canvas
+    // Create a 64x64 off-screen canvas
     // ==========================================
     GFXcanvas16 clockCanvas(64, 64);
 
@@ -225,7 +225,6 @@ namespace MarioClock {
                     int bitShift = 7 - (bitIndex % 8);
                     
                     if ((FONT_BITMAPS[byteIndex] >> bitShift) & 1) {
-                        // DRAW TO CANVAS INSTEAD OF DMA_DISPLAY
                         clockCanvas.drawPixel(destX, destY, color);
                     }
                 }
@@ -240,14 +239,12 @@ namespace MarioClock {
             if (color != _MASK) {
                 int px = x + (i % width);
                 int py = y + (i / width);
-                // DRAW TO CANVAS INSTEAD OF DMA_DISPLAY
                 clockCanvas.drawPixel(px, py, color);
             }
         }
     }
 
     void drawClouds(int x, int y) {
-        // DRAW TO CANVAS INSTEAD OF DMA_DISPLAY
         clockCanvas.fillRect(x + 4, y, 16, 8, M_WHITE);
         clockCanvas.fillRect(x + 2, y + 2, 20, 6, M_WHITE);
         clockCanvas.fillRect(x, y + 4, 24, 4, M_WHITE);
@@ -257,7 +254,7 @@ namespace MarioClock {
     void drawClockFrame(int hours, int minutes) {
         unsigned long now = millis();
 
-        // 1. Check for minute changes (Keep this outside the timer to catch instant changes)
+        // 1. Check for minute changes
         if (lastMinute != -1 && lastMinute != minutes) {
             if (!mario_isJumping) {
                 mario_isJumping = true;
@@ -317,7 +314,6 @@ namespace MarioClock {
             drawSprite(hourBlock_x, hourBlock_startY + hourBlock_offset, 19, 19, BLOCK);
             drawSprite(minBlock_x, minBlock_startY + minBlock_offset, 19, 19, BLOCK);
             
-            // Note: Moving these Strings here saves your heap from fragmenting!
             String hh = (hours < 10 ? "0" : "") + String(hours);
             String mm = (minutes < 10 ? "0" : "") + String(minutes);
             drawMarioText(hh, hourBlock_x + 2, hourBlock_startY + hourBlock_offset + 12, M_BLACK);
@@ -337,8 +333,21 @@ namespace MarioClock {
                 }
             }
             
-            // --- Push to Matrix ---
-            dma_display->drawRGBBitmap(0, 0, clockCanvas.getBuffer(), 64, 64);
+            // --- Centered Offset Calculation ---
+            int matrixW = dma_display->width();
+            int matrixH = dma_display->height();
+            int offsetX = (matrixW - 64) / 2;
+            int offsetY = (matrixH - 64) / 2;
+            if (offsetX < 0) offsetX = 0;
+            if (offsetY < 0) offsetY = 0;
+
+            // Clear surrounding borders if panel size is larger than 64x64
+            if (matrixW > 64 || matrixH > 64) {
+                dma_display->fillScreen(0);
+            }
+
+            // --- Push Centered to Matrix ---
+            dma_display->drawRGBBitmap(offsetX, offsetY, clockCanvas.getBuffer(), 64, 64);
 
             lastFrameTime = now;
         }

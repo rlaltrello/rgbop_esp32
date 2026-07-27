@@ -1,4 +1,3 @@
-// morphClock.h
 #pragma once
 #include <time.h>
 #include <cmath>
@@ -125,6 +124,10 @@ public:
 
         ctx->setFillStyle(0x00FFAA); // Cyan/Greenish Color
 
+        // Calculate dynamic horizontal centering offset
+        int offsetX = (width - 64) / 2;
+        if (offsetX < 0) offsetX = 0;
+
         // --- RENDER LOOP ---
         for (int i = 0; i < 6; i++) {
             const int* last = SEGMENTS[lastDigits[i]];
@@ -134,7 +137,8 @@ public:
             double t = std::max(0.0, std::min(1.0, rawT));
             double et = ease(t);
 
-            int sx = POSITIONS_X[i];
+            // Apply horizontal offset to sx
+            int sx = POSITIONS_X[i] + offsetX;
             int sy = POSITIONS_Y;
 
             std::vector<int> turnOff;

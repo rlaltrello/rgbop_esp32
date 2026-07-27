@@ -10,6 +10,7 @@ extern File fsUploadFile;
 extern void syncTimeWithLocation();
 
 // Preferences (extern so main.ino owns the state)
+extern String prefPanelName;
 extern bool prefShowGifs;
 extern bool prefShowClock;
 extern bool prefShowDate;
@@ -33,8 +34,25 @@ extern int prefNightEnd;
 extern int prefTransitionTime;
 extern bool prefShowDoodles;
 
+
 extern void updateBrightness();
 extern void saveConfig();
+
+String sanitizeText(String input) {
+    // Replace UTF-8 smart single quotes (‘ and ’) with '
+    input.replace("\xE2\x80\x98", "'");
+    input.replace("\xE2\x80\x99", "'");
+    
+    // Replace UTF-8 smart double quotes (“ and ”) with "
+    input.replace("\xE2\x80\x9C", "\"");
+    input.replace("\xE2\x80\x9D", "\"");
+
+    // Replace UTF-8 en-dash/em-dash (– and —) with -
+    input.replace("\xE2\x80\x93", "-");
+    input.replace("\xE2\x80\x94", "-");
+
+    return input;
+}
 
 // ------------------------------------------------------------
 // ROUTE SETUP
@@ -52,7 +70,7 @@ static void setupWebRoutes() {
     // --- GET SETTINGS ---
     server.on("/api/settings", HTTP_GET, []() {
         JsonDocument doc;
-
+        doc["panelName"] = prefPanelName;
         doc["gifs"] = prefShowGifs;
         doc["clock"] = prefShowClock;
         doc["date"] = prefShowDate;
@@ -104,6 +122,7 @@ static void setupWebRoutes() {
             return;
         }
 
+        if (doc.containsKey("panelName")) prefPanelName = sanitizeText(doc["panelName"].as<String>());
         if (doc.containsKey("gifs")) prefShowGifs = doc["gifs"];
         if (doc.containsKey("clock")) prefShowClock = doc["clock"];
         if (doc.containsKey("date")) prefShowDate = doc["date"];

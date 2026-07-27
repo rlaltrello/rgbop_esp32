@@ -16,43 +16,50 @@ extern bool currentIsNight;
 #define PANEL_RES_Y 64
 #define PANEL_CHAIN 1
 
+
 // ------------------------------------------------------------
-// VERIFIED ESP32‑S3 HUB75 PINOUT
+// HARDWARE SELECTION
 // ------------------------------------------------------------
-#define R1_PIN  1
-#define G1_PIN  2
-#define B1_PIN  3
-#define R2_PIN  4
-#define G2_PIN  5
-#define B2_PIN  6
 
-#define A_PIN   7
-#define B_PIN   8
-#define C_PIN   9
-#define D_PIN   10
-#define E_PIN   11
+//#define USE_PANEL_LAYLA  // <--- UNCOMMENT THIS LINE FOR LAYLA, COMMENT OUT FOR STANDARD S3
 
-#define LAT_PIN 12
-#define OE_PIN  13
-#define CLK_PIN 14
+#ifdef USE_PANEL_LAYLA
+    // --- Panel Layla Pinout ---
+    #define R1_PIN  18
+    #define G1_PIN  8
+    #define B1_PIN  17
+    #define R2_PIN  16
+    #define G2_PIN  1
+    #define B2_PIN  15
 
-// panel Layla
-//#define R1_PIN  18
-//#define G1_PIN  8
-//#define B1_PIN  17
-//#define R2_PIN  16
-//#define G2_PIN  1
-//#define B2_PIN  15
+    #define A_PIN   7
+    #define B_PIN   48
+    #define C_PIN   6
+    #define D_PIN   47
+    #define E_PIN   2
 
-//#define A_PIN   7
-//#define B_PIN   48
-//#define C_PIN   6
-//#define D_PIN   47
-//#define E_PIN   2
+    #define LAT_PIN 21
+    #define OE_PIN  4
+    #define CLK_PIN 5
+#else
+    // --- Verified ESP32-S3 HUB75 Pinout ---
+    #define R1_PIN  1
+    #define G1_PIN  2
+    #define B1_PIN  3
+    #define R2_PIN  4
+    #define G2_PIN  5
+    #define B2_PIN  6
 
-//#define LAT_PIN 21
-//#define OE_PIN  4
-//#define CLK_PIN 5
+    #define A_PIN   7
+    #define B_PIN   8
+    #define C_PIN   9
+    #define D_PIN   10
+    #define E_PIN   11
+
+    #define LAT_PIN 12
+    #define OE_PIN  13
+    #define CLK_PIN 14
+#endif
 
 // ------------------------------------------------------------
 // HARDWARE INITIALIZATION

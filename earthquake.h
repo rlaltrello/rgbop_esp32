@@ -7,7 +7,6 @@
 #include <ArduinoJson.h>
 #include <math.h>
 
-
 struct QuakeEvent {
     int x;
     int y;
@@ -62,6 +61,9 @@ namespace EarthquakeData {
 
 class EarthquakeWidget {
 private:
+    unsigned long renderStartTime = 0;
+    bool isAnimating = false;
+
     void mapProjection(float lon, float lat, int &x, int &y) {
         x = (int)((lon + 180.0) * (64.0 / 360.0));
         y = (int)((90.0 - lat) * (32.0 / 180.0));
@@ -69,24 +71,22 @@ private:
         if (y < 0) y = 0; if (y > 31) y = 31;
     }
 
-
-uint32_t getMagColor(float magnitude) {
-    if (magnitude < 4.0) return 0x0000FF;    // Pure Blue
-    if (magnitude < 5.0) return 0x00ff00;    // Pure Green
-    if (magnitude < 6.0) return 0xffff00;  // Yellow
-    if (magnitude < 7.0) return 0xffaa1d; // Orange
-    return 0xFF0000;                         // Red
-}
-
-
+    uint32_t getMagColor(float magnitude) {
+        if (magnitude < 4.0) return 0x0000FF;    // Pure Blue
+        if (magnitude < 5.0) return 0x00ff00;    // Pure Green
+        if (magnitude < 6.0) return 0xffff00;    // Yellow
+        if (magnitude < 7.0) return 0xffaa1d;    // Orange
+        return 0xFF0000;                         // Red
+    }
 
 public:
-    void begin() {}
-
+    void begin() {
+        isAnimating = false;
+    }
 
     bool fetchData() {
         using namespace EarthquakeData;
-        bool success = false; // Added missing declaration
+        bool success = false;
         
         Serial.println("[QUAKES] Fetching recent earthquakes from USGS...");
         WiFiClientSecure *client = new WiFiClientSecure();
@@ -138,8 +138,15 @@ public:
         return success;
     }
 
-    void draw(GraphicsContext* ctx, Font* font, int width, int height, unsigned long currentTime) {
+    bool draw(GraphicsContext* ctx, Font* font, int width, int height, unsigned long currentTime) {
         using namespace EarthquakeData;
+
+        // Initialize animation start time when the widget cycle begins
+        if (!isAnimating) {
+            renderStartTime = currentTime;
+            isAnimating = true;
+        }
+
         ctx->setFillStyle(0x000000); 
         ctx->fillRect(0, 0, width, height);
 
@@ -152,38 +159,93 @@ public:
         ctx->setFillStyle(0x555555); 
         ctx->fillRect(0, 48, width, 1);
 
-        font->drawColorText(ctx, "EARTHQUAKE", 2, 11, 0xFFA500);
+        // Center "EARTHQUAKE" title dynamically
+        std::string titleText = "EARTHQUAKE";
+        int titleWidth = font->getTextWidth(titleText);
+        if (titleWidth <= 0) titleWidth = titleText.length() * 6; // Fallback to 6px per char
+        int titleX = (width - titleWidth) / 2;
+        if (titleX < 0) titleX = 0;
 
-
-
+        font->drawColorText(ctx, titleText.c_str(), titleX, 11, 0xFFA500);
 
         if (quakeCount == 0) {
-            if (apiError) font->drawColorText(ctx, "USGS ERR", 9, 24, 0xFF0000);
-            else font->drawText(ctx, "LOADING...", 5, 20);
-            return;
+            if (apiError) font->drawColorText(ctx, "USGS ERR", (width - 48) / 2, 24, 0xFF0000);
+            else font->drawText(ctx, "LOADING...", (width - 60) / 2, 20);
+            isAnimating = false; // Reset state for next cycle
+            return true;
         }
 
+        // Calculate dynamic horizontal centering offset for the world map
+        int mapOffsetX = (width - 64) / 2;
+        if (mapOffsetX < 0) mapOffsetX = 0;
+
+        // Draw World Map shifted by mapOffsetX
         for (int y = 0; y < 32; y++) {
             for (int x = 0; x < 64; x++) {
                 if (WORLD_MAP_ARRAY[y][x] == 1) {
                     ctx->setFillStyle(0x618C);
-                    ctx->fillRect(x, y + 16, 1, 1);
+                    ctx->fillRect(x + mapOffsetX, y + 16, 1, 1);
                 }
             }
         }
 
+        // Draw Earthquakes shifted by mapOffsetX
         for (int i = 0; i < quakeCount; i++) {
-            
-
             if (i == latestQuakeIndex && ((millis() / 250) % 2 == 0)) continue; 
             ctx->setFillStyle(getMagColor(quakes[i].mag));
-            ctx->fillRect(quakes[i].x, quakes[i].y + 16, 1, 1);
+            ctx->fillRect(quakes[i].x + mapOffsetX, quakes[i].y + 16, 1, 1);
         }
-        int textWidth = quakes[latestQuakeIndex].title.length()*6; // 6 px char width
-        int scrollX = width - ((currentTime / 40) % (textWidth + width));
+
+        // ------------------------------------------------------------
+        // SCROLL-ON, PAUSE AT (0,0), AND SCROLL-OFF ANIMATION
+        // ------------------------------------------------------------
         if (quakeCount > 0 && latestQuakeIndex != -1) {
-            font->drawColorText(ctx, quakes[latestQuakeIndex].title.c_str(), scrollX, 60, 0xFFA500);
+            String label = quakes[latestQuakeIndex].title;
+            int textWidth = font->getTextWidth(label.c_str());
+            if (textWidth <= 0) textWidth = label.length() * 6;
+
+            const int speedMsPerPixel = 40; // Speed: ms per pixel
+            const int pauseAtStartMs  = 0; // Pause duration when aligned at left edge (x = 0)
+
+            // Phase 1: Distance traveling from off-screen right (x = width) to left edge (x = 0)
+            int scrollOnDistance = width;
+            int scrollOnTimeMs   = scrollOnDistance * speedMsPerPixel;
+
+            // Phase 2: Pause at x = 0 for 1.5 seconds so user can read comfortable
+
+            // Phase 3: Distance traveling from x = 0 to completely off-screen left (x = -textWidth)
+            int scrollOffDistance = textWidth;
+            int scrollOffTimeMs   = scrollOffDistance * speedMsPerPixel;
+
+            // Elapsed time in this current cycle
+            unsigned long elapsedTime = currentTime - renderStartTime;
+
+            int scrollX = width;
+
+            if (elapsedTime < scrollOnTimeMs) {
+                // Phase 1: Scrolling ONTO screen from right edge
+                scrollX = width - (elapsedTime / speedMsPerPixel);
+            } 
+            else if (elapsedTime < scrollOnTimeMs + pauseAtStartMs) {
+                // Phase 2: Pause at x = 0 for reading
+                scrollX = 0;
+            } 
+            else if (elapsedTime < scrollOnTimeMs + pauseAtStartMs + scrollOffTimeMs) {
+                // Phase 3: Resume scrolling OFF screen to the left
+                unsigned long progressMs = elapsedTime - (scrollOnTimeMs + pauseAtStartMs);
+                scrollX = -(progressMs / speedMsPerPixel);
+            } 
+            else {
+                // Cycle Complete: Text is completely off-screen
+                isAnimating = false; // Reset state so next call starts fresh
+                return true;
+            }
+
+            font->drawColorText(ctx, label.c_str(), scrollX, 60, 0xFFA500);
         }
+
+        return false;
     }
 };
-#endif
+
+#endif // EARTHQUAKE_H

@@ -18,6 +18,8 @@
 #include "diags.h"
 #include <WebServer.h>
 #include "gifEngine.h"
+#include "GameModeManager.h"
+#include "shooter.h"
 #include "webApi.h"
 #include "logo.h"
 #include "widgetEngine.h"
@@ -51,6 +53,8 @@ MatrixPanel_I2S_DMA *dma_display = nullptr;
 bool provisioningMode = false;
 bool newCredentialsReceived = false;
 
+
+String prefPanelName = "";
 bool prefShowGifs = true;
 bool prefShowClock = true;
 bool prefShowDate = true;
@@ -76,6 +80,9 @@ String prefOsPass = "";
 
 String prefSpotifyRefreshToken = "";
 
+int actualPanelX=64; // extend panel here and in hardware.h is you add another panel
+int actualPanelY=64;
+
 int prefBrightness = 128;
 bool prefNightMode = false;
 int prefNightStart = 22;
@@ -90,6 +97,8 @@ String gifDir = "/gifs"; // play all GIFs in this directory on the SD card
 char filePath[256] = { 0 };
 File root;
 
+GameModeManager gameManager(server);
+ShooterGame shooter;
 
 
 #define FILESYSTEM LittleFS
@@ -261,7 +270,17 @@ void setup() {
       delay(1000);
       
       setupWebRoutes();
-      // -------------------------------------------
+
+      // Bind shooter.reset() to game start event
+      gameManager.onGameStart([]() {
+        shooter.reset();
+        if (dma_display != nullptr) {
+            dma_display->clearScreen();
+        }
+      });
+      // Initialize Game Manager routes & WebSocket
+      gameManager.begin();
+   
       buildHostName();
 
       if (MDNS.begin(mdnsHost)) {
@@ -273,6 +292,8 @@ void setup() {
   }
 
   syncTimeWithLocation();
+
+
   
   //planesWidget.begin(OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, MY_LAT, MY_LNG, 20.0);
   if (prefShowPlanes) planesWidget.begin(prefOsUser, prefOsPass, prefLat, prefLng, 20.0);
@@ -318,6 +339,14 @@ void drawBluetoothWaiting() {
 
     // Optional: Draw a subtle bounding box or text
     // myFont.drawText(&myGraphics, "SETUP", 18, 60); 
+}
+
+void updateGameLogic(const GameInputState& input) {
+    if (input.up)    { /* Move player up */ }
+    if (input.down)  { /* Move player down */ }
+    if (input.left)  { /* Move player left */ }
+    if (input.right) { /* Move player right */ }
+    if (input.fire)  { /* Action / Shoot */ }
 }
 
 // ------------------------------------------------------------
@@ -392,23 +421,45 @@ void runWidgetRotation() {
     bool anyWidgetActive = hasNonGifWidgetsEnabled();
 
     if (anyWidgetActive) {
+        if (gameManager.isGameModeActive()) return; // <-- Bail immediately
+        
         if (prefShowClock) {
             if (showMarioNext) showClock();
             else showMorphClock();
             showMarioNext = !showMarioNext; 
         }
+        
+        if (gameManager.isGameModeActive()) return; // <-- Bail check between widgets
         if (prefShowDate) showDateProgress();  
+        
+        if (gameManager.isGameModeActive()) return;
         if (prefShowTextBlast) showTextBlast();
+        
+        if (gameManager.isGameModeActive()) return;
         if (prefShowWeather) showWeather();      
+        
+        if (gameManager.isGameModeActive()) return;
         if (prefShowISS) showISS();
+        
+        if (gameManager.isGameModeActive()) return;
         if (prefShowPlanes) showPlanes();
+        
+        if (gameManager.isGameModeActive()) return;
         if (prefShowEarthquake) showEarthquakes();
+        
+        if (gameManager.isGameModeActive()) return;
         if (prefShowSpotify) showSpotify();
+        
+        if (gameManager.isGameModeActive()) return;
         if (prefShowDoodles) showDoodles();
+        
+        if (gameManager.isGameModeActive()) return;
         if (prefShowDiags) showDiags();
+        
+        if (gameManager.isGameModeActive()) return;
         if (prefShowRadar) showRadar();
     } else {
-        showLogo();
+        if (!gameManager.isGameModeActive()) showLogo();
     }
 }
 
@@ -433,17 +484,16 @@ void playGifSequence() {
             memset(filePath, 0x0, sizeof(filePath));                
             strcpy(filePath, currentFile.path());
         
-            if (prefShowGifs) {
-                playGIF(filePath);
+            if (prefShowGifs && !gameManager.isGameModeActive()) {
+                playGIF(filePath); // Ensure your GIF decoder also checks or exits quickly
             } else { 
                 currentFile.close();
                 break;
             }   
         
-            //runWidgetRotation();
-            // Only interleave widgets if at least one non-GIF widget is enabled.
-            if (hasNonGifWidgetsEnabled()) {
-                runWidgetRotation();            }
+            if (hasNonGifWidgetsEnabled() && !gameManager.isGameModeActive()) {
+                runWidgetRotation();            
+            }
         }
         currentFile.close();
         currentFile = root.openNextFile();
@@ -456,6 +506,30 @@ void loop() {
     if (provisioningMode) {
         handleProvisioning();
         return; 
+    }
+
+    server.handleClient();
+    gameManager.update();
+
+    if (gameManager.isGameModeActive()) {
+        GameInputState input = gameManager.getInputState();
+
+        // Run game physics
+        shooter.update(input);
+
+        // Render to LED panel
+        shooter.draw(*dma_display);
+
+        // Send telemetry back to Flutter app on WebSocket (port 81)
+        gameManager.broadcastState(
+            shooter.getX(), 
+            shooter.getY(), 
+            shooter.getDir(), 
+            shooter.getBulletX(), 
+            shooter.getBulletY()
+        );
+        
+        return; // Skip normal widget/GIF rotation
     }
 
     // 2. Play GIFs and interleave widgets if enabled

@@ -28,10 +28,13 @@ extern String prefSpotifyRefreshToken;
 // Mario font provided by main.ino
 extern CustomMarioFont myMarioFont;
 
+extern int actualPanelX;
+extern int actualPanelY;
+
 // ------------------------------------------------------------
 // CANVAS + FONT + GRAPHICS WRAPPERS
 // ------------------------------------------------------------
-GFXcanvas16 widgetCanvas(64, 64);
+GFXcanvas16 widgetCanvas(actualPanelX, actualPanelY);
 extern GFXcanvas16 weatherCanvas; 
 
 class MatrixFont : public Font {
@@ -158,13 +161,13 @@ static MatrixGraphics widgetGraphics;
 static void pushCanvasToMatrix() {
     if (currentIsNight) {
         uint16_t* src = widgetCanvas.getBuffer();
-        for (int y = 0; y < 64; y++) {
-            for (int x = 0; x < 64; x++) {
+        for (int y = 0; y < actualPanelY; y++) {
+            for (int x = 0; x < actualPanelX; x++) {
                 dma_display->drawPixel(x, y, applyNightVision(src[y * 64 + x]));
             }
         }
     } else {
-        dma_display->drawRGBBitmap(0, 0, widgetCanvas.getBuffer(), 64, 64);
+        dma_display->drawRGBBitmap(0, 0, widgetCanvas.getBuffer(), actualPanelX, actualPanelY);
     }
 }
 
@@ -174,7 +177,7 @@ static void pushCanvasToMatrix() {
 static void showWeather() {
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
-        weatherWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+        weatherWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
         server.handleClient();
@@ -184,7 +187,7 @@ static void showWeather() {
 static void showLogo() {
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
-        logoWidget.draw(&widgetGraphics, &widgetFont, 64, 64);
+        logoWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY);
         pushCanvasToMatrix();
         delay(30);
         server.handleClient();
@@ -211,7 +214,7 @@ static void showClock() {
 static void showMorphClock() {
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
-        morphWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+        morphWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
         server.handleClient();
@@ -225,41 +228,70 @@ static void showDoodles() {
     // 1. Open directory if it's not already open
     if (!doodleDir || !doodleDir.isDirectory()) {
         doodleDir = LittleFS.open("/doodles");
-        if (!doodleDir) return; // Directory doesn't exist yet
+        if (!doodleDir) return; 
     }
 
     // 2. Try to get the next file
     File file = doodleDir.openNextFile();
     
-    // 3. If we hit the end of the folder, loop back to the beginning
+    // 3. Loop back to start if at the end
     if (!file) {
         doodleDir.close();
         doodleDir = LittleFS.open("/doodles");
         if (!doodleDir) return;
         file = doodleDir.openNextFile();
-        if (!file) return; // Directory is completely empty
+        if (!file) return; 
     }
 
-    // 4. Seek forward until we find a valid .bin file
+    // 4. Accept either 64x64 (8192 bytes) OR 128x64 (16384 bytes)
+    size_t fileSize = 0;
     while (file) {
-        if (!file.isDirectory() && String(file.name()).endsWith(".bin") && file.size() == 8192) {
-            break; // Found a valid doodle!
+        fileSize = file.size();
+        if (!file.isDirectory() && String(file.name()).endsWith(".bin") && 
+           (fileSize == 8192 || fileSize == 16384)) {
+            break; 
         }
         file.close();
         file = doodleDir.openNextFile();
     }
 
-    // 5. Draw it
+    // 5. Draw it safely
     if (file) {
+        // Clear full canvas first (blanks second panel or extra margins)
         widgetCanvas.fillScreen(0x0000); 
-        uint8_t buffer[128]; 
+
         file.seek(0);
-        
-        for (int y = 0; y < 64; y++) {
-            file.read(buffer, 128);
-            for (int x = 0; x < 64; x++) {
-                uint16_t color = (buffer[x * 2] << 8) | buffer[x * 2 + 1];
-                widgetCanvas.drawPixel(x, y, color);
+
+        if (fileSize == 8192) {
+            // --------------------------------------------------------
+            // Legacy 64x64 Doodle: Center across actualPanelX
+            // --------------------------------------------------------
+            int offsetX = (actualPanelX - 64) / 2;
+            if (offsetX < 0) offsetX = 0;
+
+            uint8_t rowBuffer[128]; // 64 pixels * 2 bytes = 128 bytes
+
+            for (int y = 0; y < 64 && y < actualPanelY; y++) {
+                if (file.read(rowBuffer, sizeof(rowBuffer)) != sizeof(rowBuffer)) break;
+
+                for (int x = 0; x < 64; x++) {
+                    uint16_t color = (rowBuffer[x * 2] << 8) | rowBuffer[x * 2 + 1];
+                    widgetCanvas.drawPixel(offsetX + x, y, color);
+                }
+            }
+        } else if (fileSize == 16384) {
+            // --------------------------------------------------------
+            // Full 128x64 Doodle
+            // --------------------------------------------------------
+            uint8_t rowBuffer[256]; // 128 pixels * 2 bytes = 256 bytes
+
+            for (int y = 0; y < actualPanelY; y++) {
+                if (file.read(rowBuffer, sizeof(rowBuffer)) != sizeof(rowBuffer)) break;
+
+                for (int x = 0; x < actualPanelX; x++) {
+                    uint16_t color = (rowBuffer[x * 2] << 8) | rowBuffer[x * 2 + 1];
+                    widgetCanvas.drawPixel(x, y, color);
+                }
             }
         }
 
@@ -277,7 +309,7 @@ static void showDoodles() {
 static void showDateProgress() {
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
-        dateWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+        dateWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
         server.handleClient();
@@ -292,7 +324,7 @@ static void showTextBlast() {
     bool done = false;
 
     while (!done && millis() - start < 60000) {
-        done = textBlastWidget.draw(&widgetGraphics, &widgetFont, &myMarioFont, 64, 64, millis());
+        done = textBlastWidget.draw(&widgetGraphics, &widgetFont, &myMarioFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
         server.handleClient();
@@ -302,7 +334,7 @@ static void showTextBlast() {
 static void showPlanes() {
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
-        planesWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+        planesWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
         server.handleClient();
@@ -311,8 +343,9 @@ static void showPlanes() {
 
 static void showEarthquakes() {
     unsigned long start = millis();
-    while (millis() - start < (prefTransitionTime * 1000)) {
-        earthquakeWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+    bool done = false;
+    while (!done && millis() - start < 60000) {
+        done = earthquakeWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
         server.handleClient();
@@ -329,7 +362,7 @@ static void showRadar() {
     radarWidget.fetch();
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
-        radarWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+        radarWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
         server.handleClient();
@@ -342,7 +375,7 @@ static void showDiags() {
 
     while (!done && millis() - start < 60000) {
         // Pass elapsed time (millis() - start) instead of raw millis()
-        done = diagWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis() - start);
+        done = diagWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis() - start);
         
         pushCanvasToMatrix();
         delay(30);
@@ -366,7 +399,7 @@ static void showSpotify() {
     // 3. Render loop until configured scroll cycles complete (or 60s timeout)
     while (!done && millis() - start < 60000) {
         // Draw returns true once scrollX passes the text width targetCycles times
-        done = spotifyWidget.draw(&widgetGraphics, &widgetFont, 64, 64, millis());
+        done = spotifyWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         
         pushCanvasToMatrix();
         delay(30);

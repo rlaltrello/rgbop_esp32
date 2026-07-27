@@ -61,9 +61,11 @@ static void GIFDraw(GIFDRAW* pDraw) {
     uint8_t* src = pDraw->pPixels;
     uint16_t* palette = pDraw->pPalette;
 
-    int y = pDraw->iY + pDraw->y;
+    int y = y_offset + pDraw->iY + pDraw->y;
     int width = pDraw->iWidth;
-    if (width > dma_display->width()) width = dma_display->width();
+
+    // Clip vertically if out of bounds
+    if (y < 0 || y >= dma_display->height()) return;
 
     if (pDraw->ucDisposalMethod == 2) {
         for (int x = 0; x < width; x++) {
@@ -87,7 +89,10 @@ static void GIFDraw(GIFDRAW* pDraw) {
             }
 
             for (int i = 0; i < count; i++) {
-                dma_display->drawPixel(x + i, y, applyNightVision(temp[i]));
+                int drawX = x_offset + x + i;
+                if (drawX >= 0 && drawX < dma_display->width()) {
+                    dma_display->drawPixel(drawX, y, applyNightVision(temp[i]));
+                }
             }
             x += count;
 
@@ -100,7 +105,11 @@ static void GIFDraw(GIFDRAW* pDraw) {
         }
     } else {
         for (int x = 0; x < width; x++) {
-            dma_display->drawPixel(x, y, applyNightVision(palette[*src++]));
+            int drawX = x_offset + x;
+            if (drawX >= 0 && drawX < dma_display->width()) {
+                dma_display->drawPixel(drawX, y, applyNightVision(palette[*src]));
+            }
+            src++;
         }
     }
 }
@@ -121,6 +130,13 @@ static void playGIF(const char* path, uint32_t durationMs = 10000) {
 
     y_offset = (dma_display->height() - gif.getCanvasHeight()) / 2;
     if (y_offset < 0) y_offset = 0;
+
+    // ------------------------------------------------------------
+    // Clear entire display buffer (both panels) before starting
+    // ------------------------------------------------------------
+    dma_display->fillScreen(0);
+    dma_display->flipDMABuffer(); // Clear back buffer if double buffering is enabled
+    dma_display->fillScreen(0);
 
     while (millis() - gifStartTick < durationMs) {
         int result = gif.playFrame(true, nullptr);

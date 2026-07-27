@@ -1,27 +1,32 @@
 #pragma once
 #include <string>
 
+extern String prefPanelName;
+
 class DiagWidget {
 public:
     // Draw the logo onto the provided GraphicsContext + Font
     template <typename CtxType, typename FontType>
 bool draw(CtxType* ctx, FontType* font, int width, int height, unsigned long currentTime) {
 
-    // --- 1. Draw Vertical Stripes ---
-    // Left 1/3 = RED
-    ctx->setFillStyle(0xFF0000);   // Red
-    ctx->fillRect(0, 0, width / 3, height);
+int thirdWidth = width / 3;
 
-    // Middle 1/3 = BLUE
-    ctx->setFillStyle(0x0000FF);   // Blue
-    ctx->fillRect(width / 3, 0, width / 3, height);
+// Left 1/3 = RED
+ctx->setFillStyle(0xFF0000);
+ctx->fillRect(0, 0, thirdWidth, height);
 
-    // Right 1/3 = GREEN
-    ctx->setFillStyle(0x00FF00);   // Green
-    ctx->fillRect(2 * (width / 3), 0, width / 3, height);
+// Middle 1/3 = BLUE
+ctx->setFillStyle(0x0000FF);
+ctx->fillRect(thirdWidth, 0, thirdWidth, height);
+
+// Right 1/3 = GREEN (Fill remaining span to the right boundary)
+ctx->setFillStyle(0x00FF00);
+ctx->fillRect(2 * thirdWidth, 0, width - (2 * thirdWidth), height);
 
     // --- 2. Text Setup ---
-    const std::string text = std::string(WiFi.getHostname()) + " - " + WiFi.localIP().toString().c_str();
+    const std::string text = std::string(prefPanelName.c_str()) + " - " + 
+                         WiFi.getHostname() + " - " + 
+                         WiFi.localIP().toString().c_str();
     const uint32_t textColor = 0x00FFFF;   // Cyan
     const uint32_t bgColor   = 0x000000;   // Black
     const int padding = 3;

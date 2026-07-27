@@ -9,6 +9,7 @@
 extern String currentSSID;
 extern String currentPASS;
 
+extern String prefPanelName;
 extern bool prefShowGifs;
 extern bool prefShowClock;
 extern bool prefShowDate;
@@ -67,6 +68,7 @@ static bool loadConfig() {
     currentSSID = doc["ssid"] | "";
     currentPASS = doc["password"] | "";
 
+    prefPanelName = doc["panelName"] | "RGBop Panel";
     prefShowGifs = doc["gifs"] | true;
     prefShowClock = doc["clock"] | true;
     prefShowDate = doc["date"] | true;
@@ -135,6 +137,7 @@ void saveConfig() {
     doc["ssid"] = currentSSID;
     doc["password"] = currentPASS;
 
+    doc["panelName"] = prefPanelName;
     doc["gifs"] = prefShowGifs;
     doc["clock"] = prefShowClock;
     doc["date"] = prefShowDate;
