@@ -4,22 +4,24 @@
 #include <Arduino.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
-#include <ArduinoJson.h>
+#include <functional>
 
 #define BTN_BIT_UP    0
 #define BTN_BIT_DOWN  1
 #define BTN_BIT_LEFT  2
 #define BTN_BIT_RIGHT 3
-#define BTN_BIT_FIRE  4
+#define BTN_BIT_A     4
+#define BTN_BIT_B     5
 
 struct GameInputState {
     bool up = false;
     bool down = false;
     bool left = false;
     bool right = false;
-    bool fire = false;
+    bool btnA = false;
+    bool btnB = false;
     uint8_t rawBitmask = 0;
-    uint32_t lastSeq = 0;
+    uint8_t lastSeq = 0;
     unsigned long lastPacketMs = 0;
 };
 
@@ -27,142 +29,177 @@ class GameModeManager {
 private:
     WebServer& _server;
     WebSocketsServer _webSocket;
-    
+
+    bool _hasLoggedStall = false;
     bool _isGameModeActive = false;
     GameInputState _currentState;
-    uint32_t _highestSeqReceived = 0;
 
-    // Optional callback when game mode starts
-    std::function<void()> _onGameStartCallback = nullptr;
-    
     const unsigned long WATCHDOG_TIMEOUT_MS = 250;
+    const unsigned long DISCONNECT_GRACE_MS = 800;   // NEW
+
+    bool _pendingDisconnectExit = false;             // NEW
+    unsigned long _disconnectAtMs = 0;              // NEW
+
+    std::function<void()> _onGameStartCallback = nullptr;
+    std::function<void()> _onGameExitCallback  = nullptr;
 
     void resetInputState() {
         _currentState = GameInputState();
-        _highestSeqReceived = 0;
     }
 
-    void parseInputPacket(uint8_t* payload, size_t length) {
-        JsonDocument doc;
-        DeserializationError err = deserializeJson(doc, payload, length);
-        
-        if (err) {
-           Serial.printf("[WS] JSON Parse Error: %s\n", err.c_str());
-           return;
+uint8_t connectedClientCount() {
+        uint8_t count = 0;
+        for (uint8_t i = 0; i < WEBSOCKETS_SERVER_CLIENT_MAX; i++) {
+            if (_webSocket.clientIsConnected(i)) {
+                count++;
+            }
         }
+        return count;
+    }
 
-        int version = doc["v"] | 0;
-        if (version != 1) return; // Reject incompatible protocol version
+    void exitGameMode() {
+        if (!_isGameModeActive) return;
+        _isGameModeActive = false;
+        _pendingDisconnectExit = false;              // NEW
+        resetInputState();
+        Serial.println("[GAME] Exited Game Mode");
+        if (_onGameExitCallback) {
+            _onGameExitCallback();
+        }
+    }
 
-        uint8_t buttons = doc["buttons"] | 0;
-        uint32_t seq = doc["seq"] | 0;
+void parseBinaryInputPacket(uint8_t* payload, size_t length) {
+        if (length < 2) return;
 
-        // TEMPORARY DEBUG LOG
-        Serial.printf("[WS] Seq: %u | Buttons Bitmask: %u\n", seq, buttons);
-        
-        // Drop out-of-order/stale backlog packets
-        if (seq <= _highestSeqReceived && _highestSeqReceived > 0) {
+        uint8_t seq = payload[0];
+        uint8_t buttons = payload[1];
+
+        // Drains backlogged TCP buffer sequence numbers if a lag spike happens
+        // Sequence numbers wrap around at 255
+        uint8_t seqDiff = (uint8_t)(seq - _currentState.lastSeq);
+        if (_currentState.lastPacketMs > 0 && seqDiff > 10 && seqDiff < 200) {
+            // Drop old/stale backlogged frame burst
+            _currentState.lastSeq = seq;
+            _currentState.lastPacketMs = millis();
             return;
         }
-        _highestSeqReceived = seq;
 
         _currentState.rawBitmask = buttons;
         _currentState.up    = (buttons & (1 << BTN_BIT_UP)) != 0;
         _currentState.down  = (buttons & (1 << BTN_BIT_DOWN)) != 0;
         _currentState.left  = (buttons & (1 << BTN_BIT_LEFT)) != 0;
         _currentState.right = (buttons & (1 << BTN_BIT_RIGHT)) != 0;
-        _currentState.fire  = (buttons & (1 << BTN_BIT_FIRE)) != 0;
-        
+        _currentState.btnA  = (buttons & (1 << BTN_BIT_A)) != 0;
+        _currentState.btnB  = (buttons & (1 << BTN_BIT_B)) != 0;
+
         _currentState.lastSeq = seq;
         _currentState.lastPacketMs = millis();
+        _hasLoggedStall = false;
     }
 
     void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-        switch (type) {
-            case WStype_DISCONNECTED:
-                Serial.printf("[WS] Client #%u Disconnected\n", num);
-                resetInputState();
-                break;
-            case WStype_CONNECTED:
-                Serial.printf("[WS] Client #%u Connected\n", num);
-                break;
-            case WStype_TEXT:
-                if (_isGameModeActive) {
-                    parseInputPacket(payload, length);
+    switch (type) {
+        case WStype_DISCONNECTED:
+            Serial.printf("[WS] Client #%u Disconnected\n", num);
+            break;
+
+        case WStype_CONNECTED:
+            Serial.printf("[WS] Client #%u Connected\n", num);
+            
+            // DISCONNECT ALL OTHER ZOMBIE CLIENT SLOTS
+            // Forces ESP32 to only maintain 1 active connection (num)
+            for (uint8_t i = 0; i < WEBSOCKETS_SERVER_CLIENT_MAX; i++) {
+                if (i != num) {
+                    _webSocket.disconnect(i);
                 }
-                break;
-            default:
-                break;
-        }
+            }
+            break;
+
+        case WStype_BIN:
+            parseBinaryInputPacket(payload, length);
+            break;
+
+        default:
+            break;
     }
+}
 
 public:
-    // Takes standard WebServer reference matching your webapi.h
-    GameModeManager(WebServer& server) 
-        : _server(server), _webSocket(81) {} // WebSocket server runs on port 81 (or endpoint /ws/game)
+    GameModeManager(WebServer& server)
+        : _server(server), _webSocket(81) {}
 
     void onGameStart(std::function<void()> callback) {
         _onGameStartCallback = callback;
     }
 
-    void broadcastState(int x, int y, int dir, int bulletX, int bulletY) {
-        if (!_isGameModeActive) return;
-
-        // Keep payload small for minimal network overhead
-        char buf[64];
-        snprintf(buf, sizeof(buf), "{\"x\":%d,\"y\":%d,\"d\":%d,\"bx\":%d,\"by\":%d}", 
-                 x, y, dir, bulletX, bulletY);
-
-        _webSocket.broadcastTXT(buf);
+    void onGameExit(std::function<void()> callback) {
+        _onGameExitCallback = callback;
     }
 
-    void begin() {
-        // Spin up WebSocket server
-        _webSocket.begin();
-        _webSocket.onEvent([this](uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-            this->webSocketEvent(num, type, payload, length);
-        });
+void begin() {
+    _webSocket.begin();
+    
+    // Disable WebSockets internal ping/pong ping-ponging that triggers false disconnects
+    // LWIP will handle TCP keepalives natively.
+    _webSocket.enableHeartbeat(0, 0, 0); 
 
-        // HTTP POST /api/game/start
-        _server.on("/api/game/start", HTTP_POST, [this]() {
-            _isGameModeActive = true;
-            resetInputState();
-            Serial.println("[GAME] Entered Game Mode");
-            _server.send(200, "application/json", "{\"status\":\"ok\",\"mode\":\"game\"}");
-        });
+    _webSocket.onEvent([this](uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+        this->webSocketEvent(num, type, payload, length);
+    });
 
-        // HTTP POST /api/game/stop
+_server.on("/api/game/start", HTTP_POST, [this]() {
+    _webSocket.disconnect(); // Clear lingering WS sockets
+    
+    _isGameModeActive = true;
+    _pendingDisconnectExit = false;
+    resetInputState(); // Reset sequence numbers and bitmasks
+    _currentState.lastPacketMs = millis();
+
+    if (_onGameStartCallback) {
+        _onGameStartCallback(); // Re-trigger initialization if needed
+    }
+
+    Serial.println("[GAME] Explicitly re-entered Game Mode");
+    _server.sendHeader("Connection", "close");
+    _server.send(200, "application/json", "{\"status\":\"ok\",\"mode\":\"game\"}");
+});
+
         _server.on("/api/game/stop", HTTP_POST, [this]() {
-            _isGameModeActive = false;
-            resetInputState();
-            _webSocket.disconnect();
-            Serial.println("[GAME] Exited Game Mode");
+            exitGameMode();
+            // Clean up sockets on stop
+            _webSocket.disconnect(); 
+            _server.sendHeader("Connection", "close");
             _server.send(200, "application/json", "{\"status\":\"ok\",\"mode\":\"normal\"}");
         });
     }
 
     void update() {
-        // Keep WebSocket loop processing incoming frames
         _webSocket.loop();
 
         if (!_isGameModeActive) return;
 
-        // Watchdog check: 250ms with no valid packet -> force neutral state
-        if (_currentState.lastPacketMs > 0 && (millis() - _currentState.lastPacketMs > WATCHDOG_TIMEOUT_MS)) {
+        unsigned long now = millis();
+
+        // NEW: graceful disconnect exit only when no clients remain after grace
+        if (_pendingDisconnectExit) {
+            if (connectedClientCount() > 0) {
+                _pendingDisconnectExit = false;
+            } else if (now - _disconnectAtMs > DISCONNECT_GRACE_MS) {
+                exitGameMode();
+                return;
+            }
+        }
+
+        // Watchdog: clear stuck inputs if packets pause, but remain in game mode
+        if (_currentState.lastPacketMs > 0 && (now - _currentState.lastPacketMs > WATCHDOG_TIMEOUT_MS)) {
             if (_currentState.rawBitmask != 0) {
-                Serial.println("[GAME] Watchdog triggered: Neutralizing inputs");
                 resetInputState();
             }
         }
     }
 
-    bool isGameModeActive() const {
-        return _isGameModeActive;
-    }
-
-    GameInputState getInputState() {
-        return _currentState;
-    }
+    bool isGameModeActive() const { return _isGameModeActive; }
+    GameInputState getInputState() { return _currentState; }
 };
 
 #endif

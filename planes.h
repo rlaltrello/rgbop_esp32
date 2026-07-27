@@ -100,6 +100,7 @@ public:
     }
 
     bool fetchPlanesData() {
+        if (gameManager.isGameModeActive()) return false;
         Serial.println("[PLANES] Fetching states from OpenSky...");
 
         if (accessToken.isEmpty() || millis() >= tokenExpiryTime) {

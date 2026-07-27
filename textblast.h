@@ -23,6 +23,7 @@ private:
 
 public:
     void fetchMessage() {
+        if (gameManager.isGameModeActive()) return;
         if (WiFi.status() == WL_CONNECTED) {
             Serial.println("Fetching TextBlast message...");
             WiFiClient client;

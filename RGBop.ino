@@ -1,4 +1,5 @@
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <ESPmDNS.h>
 #include <time.h>
 #include "MarioClock.h"
@@ -6,6 +7,12 @@
 #include "dateProgress.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include "GameModeManager.h"
+
+WebServer server(80);
+GameModeManager gameManager(server);
+
+
 #include <ArduinoJson.h> // Make sure to install this library in Arduino IDE
 #include "weather.h"
 #include "textblast.h"
@@ -18,7 +25,6 @@
 #include "diags.h"
 #include <WebServer.h>
 #include "gifEngine.h"
-#include "GameModeManager.h"
 #include "shooter.h"
 #include "webApi.h"
 #include "logo.h"
@@ -91,13 +97,13 @@ int prefTransitionTime = 10;
 
 bool currentIsNight = false;
 
-WebServer server(80);
+
 File fsUploadFile;
 String gifDir = "/gifs"; // play all GIFs in this directory on the SD card
 char filePath[256] = { 0 };
 File root;
 
-GameModeManager gameManager(server);
+
 ShooterGame shooter;
 
 
@@ -239,6 +245,11 @@ void setup() {
       Serial.println("Loaded credentials from config.json. Attempting connection...");
       WiFi.begin(currentSSID.c_str(), currentPASS.c_str());
       WiFi.setSleep(false);
+      // 1. DISABLE Wi-Fi Power Saving (Prevents the idle sleep/wake delay)
+    esp_wifi_set_ps(WIFI_PS_NONE);
+
+    // 2. Set maximum Wi-Fi TX power (Ensures stable packet delivery during movement)
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
       // Wait up to 10 seconds for a connection
       int retries = 0;
       while (WiFi.status() != WL_CONNECTED && retries < 20) {
@@ -342,11 +353,32 @@ void drawBluetoothWaiting() {
 }
 
 void updateGameLogic(const GameInputState& input) {
-    if (input.up)    { /* Move player up */ }
-    if (input.down)  { /* Move player down */ }
-    if (input.left)  { /* Move player left */ }
-    if (input.right) { /* Move player right */ }
-    if (input.fire)  { /* Action / Shoot */ }
+    // 1. Read Movement Axes & Action Buttons
+    bool moveUp    = input.up;
+    bool moveDown  = input.down;
+    bool moveLeft  = input.left;
+    bool moveRight = input.right;
+    bool fireBtn   = input.btnA; // Primary Fire (Button A)
+    bool boostBtn  = input.btnB; // Turbo Dash (Button B)
+
+    // 2. Handle 8-Way Diagonal Combinations
+    int dx = 0;
+    int dy = 0;
+
+    if (moveUp)    dy--;
+    if (moveDown)  dy++;
+    if (moveLeft)  dx--;
+    if (moveRight) dx++;
+
+    // 3. Trigger Primary Fire
+    if (fireBtn) {
+        /* Spawn projectile in facing direction */
+    }
+
+    // 4. Trigger Secondary Action / Speed Boost
+    if (boostBtn) {
+        /* Apply movement speed multiplier or special ability */
+    }
 }
 
 // ------------------------------------------------------------
@@ -472,6 +504,12 @@ void playGifSequence() {
 
     File currentFile = root.openNextFile();
     while (currentFile) {
+        // INSTANT BAIL OUT FOR GAME MODE
+        if (gameManager.isGameModeActive()) {
+            currentFile.close();
+            break;
+        }
+
         if (!currentFile.isDirectory()) {
             if (String(currentFile.name()).startsWith("_")) {
                 currentFile.close();
@@ -480,12 +518,18 @@ void playGifSequence() {
             }
             
             maintainNetwork(); 
+            
+            // Check again right after network servicing
+            if (gameManager.isGameModeActive()) {
+                currentFile.close();
+                break;
+            }
 
             memset(filePath, 0x0, sizeof(filePath));                
             strcpy(filePath, currentFile.path());
         
             if (prefShowGifs && !gameManager.isGameModeActive()) {
-                playGIF(filePath); // Ensure your GIF decoder also checks or exits quickly
+                playGIF(filePath); // Ensure playGIF calls maintainNetwork() internally!
             } else { 
                 currentFile.close();
                 break;
@@ -500,39 +544,38 @@ void playGifSequence() {
     }
     root.close();
 }
+unsigned long lastRenderTime = 0;
+const unsigned long RENDER_INTERVAL_MS = 16; // ~60 FPS cap
 
 void loop() {
-    // 1. If waiting for BLE credentials, block the rest of the loop
+    server.handleClient();
+    gameManager.update();
+
+     //  PRIORITY: Game Mode Execution
+    if (gameManager.isGameModeActive()) {
+        GameInputState input = gameManager.getInputState();
+        shooter.update(input);
+
+        // Throttle MATRIX draws to ~60 FPS to keep CPU free for Wi-Fi
+        unsigned long now = millis();
+        if (now - lastRenderTime >= RENDER_INTERVAL_MS) {
+            shooter.draw(*dma_display);
+            lastRenderTime = now;
+        }
+        yield();
+
+        return;
+    }
+    // If waiting for BLE credentials, block the rest of the loop
     if (provisioningMode) {
         handleProvisioning();
         return; 
     }
 
-    server.handleClient();
-    gameManager.update();
+    
 
-    if (gameManager.isGameModeActive()) {
-        GameInputState input = gameManager.getInputState();
 
-        // Run game physics
-        shooter.update(input);
-
-        // Render to LED panel
-        shooter.draw(*dma_display);
-
-        // Send telemetry back to Flutter app on WebSocket (port 81)
-        gameManager.broadcastState(
-            shooter.getX(), 
-            shooter.getY(), 
-            shooter.getDir(), 
-            shooter.getBulletX(), 
-            shooter.getBulletY()
-        );
-        
-        return; // Skip normal widget/GIF rotation
-    }
-
-    // 2. Play GIFs and interleave widgets if enabled
+    //  Play GIFs and interleave widgets if enabled
     if (prefShowGifs) {
         playGifSequence();
     } 

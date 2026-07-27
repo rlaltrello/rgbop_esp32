@@ -380,6 +380,7 @@ public:
     }
 
     bool fetchWeatherData() {
+        if (gameManager.isGameModeActive()) return false;
         if (WiFi.status() != WL_CONNECTED) {
             Serial.println("Weather fetch aborted: WiFi not connected.");
             return false;

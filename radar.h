@@ -102,6 +102,7 @@ void syncConfig() {
         unitFormat = prefRadarUnitFormat;
     }
 bool fetch() {
+        if (gameManager.isGameModeActive()) return false;
         if (WiFi.status() != WL_CONNECTED) {
             Serial.println("[Radar] Error: WiFi not connected");
             return false;

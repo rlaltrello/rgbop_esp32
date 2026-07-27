@@ -118,6 +118,9 @@ static void GIFDraw(GIFDRAW* pDraw) {
 // PUBLIC API
 // ------------------------------------------------------------
 static void playGIF(const char* path, uint32_t durationMs = 10000) {
+    // Early exit if game mode is already active
+    if (gameManager.isGameModeActive()) return;
+
     gifStartTick = millis();
 
     if (!gif.open(path, GIFOpenFile, GIFCloseFile, GIFReadFile, GIFSeekFile, GIFDraw)) {
@@ -139,9 +142,18 @@ static void playGIF(const char* path, uint32_t durationMs = 10000) {
     dma_display->fillScreen(0);
 
     while (millis() - gifStartTick < durationMs) {
+        // Keep network and WebSockets serviced
+        server.handleClient();
+        gameManager.update();
+
+        // Abort instantly if Game Mode was triggered mid-playback
+        if (gameManager.isGameModeActive()) {
+            gif.close();
+            return;
+        }
+
         int result = gif.playFrame(true, nullptr);
         dma_display->flipDMABuffer();
-        server.handleClient();
 
         if (result == 0) gif.reset();
     }

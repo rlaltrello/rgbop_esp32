@@ -2,10 +2,12 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <Adafruit_GFX.h>
 #include <time.h>
+#include "GameModeManager.h"
 
 // Externs provided by main.ino
 extern MatrixPanel_I2S_DMA* dma_display;
 extern WebServer server;
+extern GameModeManager gameManager;
 extern bool currentIsNight;
 
 // Widgets provided by main.ino
@@ -47,20 +49,17 @@ public:
         widgetCanvas.print(text.c_str());
     }
 
-    
-void drawColorText(GraphicsContext* ctx,
-                   const std::string& text,
-                   int x,
-                   int y,
-                   uint32_t color) override{
-                            widgetCanvas.setTextWrap(false);
+    void drawColorText(GraphicsContext* ctx,
+                       const std::string& text,
+                       int x,
+                       int y,
+                       uint32_t color) override {
+        widgetCanvas.setTextWrap(false);
         widgetCanvas.setTextSize(1);
         widgetCanvas.setCursor(x, y - 7);
         widgetCanvas.setTextColor(color);
         widgetCanvas.print(text.c_str());
-
-                   }
-
+    }
 
     int getTextWidth(const std::string& text) override {
         return text.length() * 6;
@@ -157,7 +156,6 @@ static MatrixGraphics widgetGraphics;
 // NIGHT VISION + CANVAS PUSH
 // ------------------------------------------------------------
 
-
 static void pushCanvasToMatrix() {
     if (currentIsNight) {
         uint16_t* src = widgetCanvas.getBuffer();
@@ -175,30 +173,43 @@ static void pushCanvasToMatrix() {
 // WIDGET SHOW FUNCTIONS
 // ------------------------------------------------------------
 static void showWeather() {
+    if (gameManager.isGameModeActive()) return;
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         weatherWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
-        server.handleClient();
     }
 }
 
 static void showLogo() {
+    if (gameManager.isGameModeActive()) return;
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         logoWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY);
         pushCanvasToMatrix();
         delay(30);
-        server.handleClient();
     }
 }
 
 static void showClock() {
+    if (gameManager.isGameModeActive()) return;
     unsigned long start = millis();
     struct tm timeinfo;
 
     while (millis() - start < (prefTransitionTime * 1000)) {
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         if (getLocalTime(&timeinfo)) {
             int hour = timeinfo.tm_hour;
             int minute = timeinfo.tm_min;
@@ -207,34 +218,35 @@ static void showClock() {
             MarioClock::drawClockFrame(hour, minute);
         }
         delay(30);
-        server.handleClient();
     }
 }
 
 static void showMorphClock() {
+    if (gameManager.isGameModeActive()) return;
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         morphWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
-        server.handleClient();
     }
 }
 
-// Static variable to remember where we are in the directory across function calls
 static File doodleDir;
 
 static void showDoodles() {
-    // 1. Open directory if it's not already open
+    if (gameManager.isGameModeActive()) return;
+
     if (!doodleDir || !doodleDir.isDirectory()) {
         doodleDir = LittleFS.open("/doodles");
         if (!doodleDir) return; 
     }
 
-    // 2. Try to get the next file
     File file = doodleDir.openNextFile();
     
-    // 3. Loop back to start if at the end
     if (!file) {
         doodleDir.close();
         doodleDir = LittleFS.open("/doodles");
@@ -243,7 +255,6 @@ static void showDoodles() {
         if (!file) return; 
     }
 
-    // 4. Accept either 64x64 (8192 bytes) OR 128x64 (16384 bytes)
     size_t fileSize = 0;
     while (file) {
         fileSize = file.size();
@@ -255,22 +266,15 @@ static void showDoodles() {
         file = doodleDir.openNextFile();
     }
 
-    // 5. Draw it safely
     if (file) {
-        // Clear full canvas first (blanks second panel or extra margins)
         widgetCanvas.fillScreen(0x0000); 
-
         file.seek(0);
 
         if (fileSize == 8192) {
-            // --------------------------------------------------------
-            // Legacy 64x64 Doodle: Center across actualPanelX
-            // --------------------------------------------------------
             int offsetX = (actualPanelX - 64) / 2;
             if (offsetX < 0) offsetX = 0;
 
-            uint8_t rowBuffer[128]; // 64 pixels * 2 bytes = 128 bytes
-
+            uint8_t rowBuffer[128];
             for (int y = 0; y < 64 && y < actualPanelY; y++) {
                 if (file.read(rowBuffer, sizeof(rowBuffer)) != sizeof(rowBuffer)) break;
 
@@ -280,11 +284,7 @@ static void showDoodles() {
                 }
             }
         } else if (fileSize == 16384) {
-            // --------------------------------------------------------
-            // Full 128x64 Doodle
-            // --------------------------------------------------------
-            uint8_t rowBuffer[256]; // 128 pixels * 2 bytes = 256 bytes
-
+            uint8_t rowBuffer[256];
             for (int y = 0; y < actualPanelY; y++) {
                 if (file.read(rowBuffer, sizeof(rowBuffer)) != sizeof(rowBuffer)) break;
 
@@ -295,124 +295,158 @@ static void showDoodles() {
             }
         }
 
-        // Render to matrix for the transition time
         unsigned long start = millis();
         while (millis() - start < (prefTransitionTime * 1000)) {
+            server.handleClient();
+            gameManager.update();
+            if (gameManager.isGameModeActive()) {
+                file.close();
+                return;
+            }
+
             pushCanvasToMatrix();
             delay(30);
-            server.handleClient();
         }
         file.close();
     }
 }
 
 static void showDateProgress() {
+    if (gameManager.isGameModeActive()) return;
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         dateWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
-        server.handleClient();
     }
 }
 
 static void showTextBlast() {
+    if (gameManager.isGameModeActive()) return;
     textBlastWidget.fetchMessage();
+    if (gameManager.isGameModeActive()) return;
+
     textBlastWidget.resetScroll(64);
 
     unsigned long start = millis();
     bool done = false;
 
     while (!done && millis() - start < 60000) {
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         done = textBlastWidget.draw(&widgetGraphics, &widgetFont, &myMarioFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
-        server.handleClient();
     }
 }
 
 static void showPlanes() {
+    if (gameManager.isGameModeActive()) return;
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         planesWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
-        server.handleClient();
     }
 }
 
 static void showEarthquakes() {
+    if (gameManager.isGameModeActive()) return;
     unsigned long start = millis();
     bool done = false;
     while (!done && millis() - start < 60000) {
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         done = earthquakeWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
-        server.handleClient();
     }
 }
 
 static void showRadar() {
+    if (gameManager.isGameModeActive()) return;
     radarWidget.setLocation(prefLat, prefLng);
     radarWidget.setZoomLevel(prefRadarZoomLevel);
     radarWidget.setTimeFormat(prefRadarTimeFormat);
     radarWidget.setUnitFormat(prefRadarUnitFormat);
-    radarWidget.setFrameDelay(200); // 200ms per animation step
+    radarWidget.setFrameDelay(200);
     radarWidget.syncConfig();
     radarWidget.fetch();
+
+    if (gameManager.isGameModeActive()) return;
+
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         radarWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
         pushCanvasToMatrix();
         delay(30);
-        server.handleClient();
     }
 }
 
 static void showDiags() {
+    if (gameManager.isGameModeActive()) return;
     unsigned long start = millis();
     bool done = false;
 
     while (!done && millis() - start < 60000) {
-        // Pass elapsed time (millis() - start) instead of raw millis()
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         done = diagWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis() - start);
-        
         pushCanvasToMatrix();
         delay(30);
-        server.handleClient();
     }
 }
 
-
 static void showSpotify() {
-    // 1. Fetch current track, progress, and 64x48 album art from VPS
-    
-    //spotifyWidget.begin("AQAYtmv8TAhMS2HuwBQVlnH_ahmOIHc9fkVeDmzQgjKGKOgeUeonpYq_ntYSRK0prbSduVTfmTFixUpaWi-qxWPRbO8z9F8rQ5QwV7Wgg9YNVqG2PjNX-T6w-T8PNMo5JW8");
+    if (gameManager.isGameModeActive()) return;
     spotifyWidget.begin(prefSpotifyRefreshToken);
     spotifyWidget.fetchSpotifyStatus();
-    // 2. Reset scroll position and cycle counters
+
+    if (gameManager.isGameModeActive()) return;
     spotifyWidget.resetScroll(64);
 
     unsigned long start = millis();
     bool done = false;
 
-    // 3. Render loop until configured scroll cycles complete (or 60s timeout)
     while (!done && millis() - start < 60000) {
-        // Draw returns true once scrollX passes the text width targetCycles times
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         done = spotifyWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
-        
         pushCanvasToMatrix();
         delay(30);
-        server.handleClient();
     }
 }
 
 static void showISS() {
+    if (gameManager.isGameModeActive()) return;
     unsigned long start = millis();
     while (millis() - start < (prefTransitionTime * 1000)) {
+        server.handleClient();
+        gameManager.update();
+        if (gameManager.isGameModeActive()) return;
+
         issWidget.draw();
         pushCanvasToMatrix();
         delay(30);
-        server.handleClient();
     }
 }

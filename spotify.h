@@ -70,6 +70,7 @@ public:
     }
 
     void fetchSpotifyStatus() {
+        if (gameManager.isGameModeActive()) return;
         if (WiFi.status() != WL_CONNECTED) {
             Serial.println("Spotify fetch aborted: WiFi not connected.");
             return;

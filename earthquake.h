@@ -85,6 +85,7 @@ public:
     }
 
     bool fetchData() {
+        if (gameManager.isGameModeActive()) return false;
         using namespace EarthquakeData;
         bool success = false;
         
@@ -197,7 +198,7 @@ public:
         }
 
         // ------------------------------------------------------------
-        // SCROLL-ON, PAUSE AT (0,0), AND SCROLL-OFF ANIMATION
+        // CONTINUOUS SMOOTH SCROLL (RIGHT TO LEFT)
         // ------------------------------------------------------------
         if (quakeCount > 0 && latestQuakeIndex != -1) {
             String label = quakes[latestQuakeIndex].title;
@@ -205,43 +206,23 @@ public:
             if (textWidth <= 0) textWidth = label.length() * 6;
 
             const int speedMsPerPixel = 40; // Speed: ms per pixel
-            const int pauseAtStartMs  = 0; // Pause duration when aligned at left edge (x = 0)
 
-            // Phase 1: Distance traveling from off-screen right (x = width) to left edge (x = 0)
-            int scrollOnDistance = width;
-            int scrollOnTimeMs   = scrollOnDistance * speedMsPerPixel;
+            // Total distance from starting just past the right edge (width)
+            // to finishing past the left edge (-textWidth)
+            int totalDistance = width + textWidth;
+            unsigned long totalDurationMs = (unsigned long)totalDistance * speedMsPerPixel;
 
-            // Phase 2: Pause at x = 0 for 1.5 seconds so user can read comfortable
-
-            // Phase 3: Distance traveling from x = 0 to completely off-screen left (x = -textWidth)
-            int scrollOffDistance = textWidth;
-            int scrollOffTimeMs   = scrollOffDistance * speedMsPerPixel;
-
-            // Elapsed time in this current cycle
             unsigned long elapsedTime = currentTime - renderStartTime;
 
-            int scrollX = width;
-
-            if (elapsedTime < scrollOnTimeMs) {
-                // Phase 1: Scrolling ONTO screen from right edge
-                scrollX = width - (elapsedTime / speedMsPerPixel);
-            } 
-            else if (elapsedTime < scrollOnTimeMs + pauseAtStartMs) {
-                // Phase 2: Pause at x = 0 for reading
-                scrollX = 0;
-            } 
-            else if (elapsedTime < scrollOnTimeMs + pauseAtStartMs + scrollOffTimeMs) {
-                // Phase 3: Resume scrolling OFF screen to the left
-                unsigned long progressMs = elapsedTime - (scrollOnTimeMs + pauseAtStartMs);
-                scrollX = -(progressMs / speedMsPerPixel);
-            } 
-            else {
-                // Cycle Complete: Text is completely off-screen
-                isAnimating = false; // Reset state so next call starts fresh
+            if (elapsedTime < totalDurationMs) {
+                // Calculate position moving smoothly from +width to -textWidth
+                int scrollX = width - (int)(elapsedTime / speedMsPerPixel);
+                font->drawColorText(ctx, label.c_str(), scrollX, 60, 0xFFA500);
+            } else {
+                // Animation finished completely off-screen
+                isAnimating = false; // Reset state for next cycle
                 return true;
             }
-
-            font->drawColorText(ctx, label.c_str(), scrollX, 60, 0xFFA500);
         }
 
         return false;

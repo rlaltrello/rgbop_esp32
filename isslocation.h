@@ -96,6 +96,7 @@ private:
 
 public:
     bool fetchISSData() {
+        if (gameManager.isGameModeActive()) return false;
         if (WiFi.status() != WL_CONNECTED) return false;
         
         Serial.println("Fetching ISS Location...");

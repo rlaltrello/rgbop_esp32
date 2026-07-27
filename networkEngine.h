@@ -55,6 +55,7 @@ const unsigned long EARTHQUAKE_RETRY_INTERVAL = 15 * 1000;        // 15 seconds
 // ------------------------------------------------------------
 static void maintainNetwork() {
     updateBrightness();
+    gameManager.update();
     unsigned long now = millis();
 
     static unsigned long lastReconnectAttempt = 0;
