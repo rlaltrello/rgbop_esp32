@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
+#include <ArduinoJson.h>
 #include <functional>
 
 #define BTN_BIT_UP    0
@@ -32,15 +33,16 @@ private:
 
     bool _hasLoggedStall = false;
     bool _isGameModeActive = false;
+    String _activeGameName = "shooter";
     GameInputState _currentState;
 
-    const unsigned long WATCHDOG_TIMEOUT_MS = 250;
-    const unsigned long DISCONNECT_GRACE_MS = 800;
+    const unsigned long WATCHDOG_TIMEOUT_MS = 500;
+    const unsigned long DISCONNECT_GRACE_MS = 3500;
 
     bool _pendingDisconnectExit = false;
     unsigned long _disconnectAtMs = 0;
 
-    std::function<void()> _onGameStartCallback = nullptr;
+    std::function<void(const String&)> _onGameStartCallback = nullptr;
     std::function<void()> _onGameExitCallback  = nullptr;
 
     void resetInputState() {
@@ -94,6 +96,11 @@ private:
                 break;
 
             case WStype_CONNECTED:
+                if (!_isGameModeActive) {
+                    Serial.printf("[WS] Client #%u rejected (Not in Game Mode)\n", num);
+                    _webSocket.disconnect(num);
+                    break;
+                }
                 Serial.printf("[WS] Client #%u Connected\n", num);
                 for (uint8_t i = 0; i < WEBSOCKETS_SERVER_CLIENT_MAX; i++) {
                     if (i != num) {
@@ -121,15 +128,20 @@ public:
         _isGameModeActive = false;
         _pendingDisconnectExit = false;
         resetInputState();
+        
+        // EXPLICITLY DROP WEBSOCKET CLIENTS SO CLIENT KNOWS GAME MODE ENDED
+        _webSocket.disconnect(); 
+
         Serial.println("[GAME] Exited Game Mode");
         if (_onGameExitCallback) {
             _onGameExitCallback();
         }
     }
 
-    void onGameStart(std::function<void()> callback) {
-        _onGameStartCallback = callback;
-    }
+// Allow either callback signature if needed, or keep it clean:
+void onGameStart(std::function<void(const String&)> callback) {
+    _onGameStartCallback = callback;
+}
 
     void onGameExit(std::function<void()> callback) {
         _onGameExitCallback = callback;
@@ -146,18 +158,37 @@ public:
         _server.on("/api/game/start", HTTP_POST, [this]() {
             _webSocket.disconnect();
             
+            // 1. Default to shooter
+            String selectedGame = "shooter";
+
+            // 2. Parse payload if present from Flutter client
+            if (_server.hasArg("plain")) {
+                StaticJsonDocument<256> doc;
+                DeserializationError error = deserializeJson(doc, _server.arg("plain"));
+                if (!error && doc.containsKey("game")) {
+                    selectedGame = doc["game"].as<String>();
+                }
+            }
+
             _isGameModeActive = true;
             _pendingDisconnectExit = false;
             resetInputState();
             _currentState.lastPacketMs = millis();
 
+            // 3. Store selection & trigger start callback
+            _activeGameName = selectedGame;
+
             if (_onGameStartCallback) {
-                _onGameStartCallback();
+                _onGameStartCallback(selectedGame); 
             }
 
-            Serial.println("[GAME] Explicitly re-entered Game Mode");
+            Serial.printf("[GAME] Explicitly re-entered Game Mode (Game: %s)\n", selectedGame.c_str());
+            
             _server.sendHeader("Connection", "close");
-            _server.send(200, "application/json", "{\"status\":\"ok\",\"mode\":\"game\"}");
+            
+            // Respond with selected game acknowledgement
+            String jsonResponse = "{\"status\":\"ok\",\"mode\":\"game\",\"game\":\"" + selectedGame + "\"}";
+            _server.send(200, "application/json", jsonResponse);
         });
 
         _server.on("/api/game/stop", HTTP_POST, [this]() {
@@ -198,6 +229,7 @@ public:
     }
 
     bool isGameModeActive() const { return _isGameModeActive; }
+    String getActiveGameName() const { return _activeGameName; }
     GameInputState getInputState() { return _currentState; }
 };
 

@@ -29,6 +29,7 @@ struct Bullet {
   int y = -1;
   int dx = 0;
   int dy = 0;
+  int distanceTraveled = 0;  // Track how far the bullet has flown
   bool active = false;
 };
 
@@ -55,8 +56,14 @@ private:
   static const int PANEL_WIDTH = 64;
   static const int PANEL_HEIGHT = 64;
   static const int MAX_BULLETS = 5;
-  static const int NUM_ENEMIES = 3;
+  static const int MAX_ENEMIES = 10;
+  static const int INITIAL_ENEMIES = 3;
   static const int MAX_PARTICLES = 16;
+  static const int MAX_BULLET_DISTANCE = 32;
+
+  int activeEnemyCount = INITIAL_ENEMIES;
+
+
 
   int playerX = 31;
   int playerY = 31;
@@ -75,7 +82,7 @@ private:
   const unsigned long EXPLOSION_DURATION_MS = 3000;  // 3-second delay before Game Over screen
 
   Bullet bullets[MAX_BULLETS];
-  Enemy enemies[NUM_ENEMIES];
+  Enemy enemies[MAX_ENEMIES];
   Particle particles[MAX_PARTICLES];
 
   GameInputState lastInput;
@@ -152,19 +159,22 @@ private:
   }
 
 public:
-  void reset() {
+void reset() {
     playerX = 31;
     playerY = 31;
     playerDir = DIR_UP;
     score = 0;
+    activeEnemyCount = INITIAL_ENEMIES;
     currentState = STATE_COUNTDOWN;
     countdownStartMs = millis();
     playerDeathTime = 0;
 
     for (int i = 0; i < MAX_BULLETS; i++) bullets[i] = Bullet();
     for (int i = 0; i < MAX_PARTICLES; i++) particles[i] = Particle();
+    for (int i = 0; i < MAX_ENEMIES; i++) enemies[i] = Enemy();
 
-    for (int i = 0; i < NUM_ENEMIES; i++) {
+    // Spawn starting batch
+    for (int i = 0; i < activeEnemyCount; i++) {
       spawnEnemy(i);
     }
 
@@ -236,11 +246,19 @@ public:
       bool dirChanged = (input.up != lastInput.up) || (input.down != lastInput.down) || (input.left != lastInput.left) || (input.right != lastInput.right);
 
       if ((moveX != 0 || moveY != 0) && (canMove || dirChanged)) {
-        if (moveX < 0 && playerX > 1) playerX += moveX;
-        if (moveX > 0 && playerX < PANEL_WIDTH - 2) playerX += moveX;
-        if (moveY < 0 && playerY > 1) playerY += moveY;
-        if (moveY > 0 && playerY < PANEL_HEIGHT - 2) playerY += moveY;
+        // Apply movement with screen wrapping
+        playerX += moveX;
+        playerY += moveY;
 
+        // Wrap X axis (0 to 63)
+        if (playerX < 0) playerX = PANEL_WIDTH - 1;
+        else if (playerX >= PANEL_WIDTH) playerX = 0;
+
+        // Wrap Y axis (0 to 63)
+        if (playerY < 0) playerY = PANEL_HEIGHT - 1;
+        else if (playerY >= PANEL_HEIGHT) playerY = 0;
+
+        // Update direction facing based on stick input
         if (moveY < 0 && moveX == 0) playerDir = DIR_UP;
         else if (moveY < 0 && moveX > 0) playerDir = DIR_UP_RIGHT;
         else if (moveY == 0 && moveX > 0) playerDir = DIR_RIGHT;
@@ -259,6 +277,7 @@ public:
           if (!bullets[i].active) {
             bullets[i].x = playerX;
             bullets[i].y = playerY;
+            bullets[i].distanceTraveled = 0;  // Reset distance
             bullets[i].active = true;
 
             switch (playerDir) {
@@ -314,10 +333,21 @@ public:
     if (now - lastBulletTime >= BULLET_INTERVAL_MS) {
       for (int i = 0; i < MAX_BULLETS; i++) {
         if (bullets[i].active) {
+          // Advance bullet position
           bullets[i].x += bullets[i].dx;
           bullets[i].y += bullets[i].dy;
+          bullets[i].distanceTraveled++;
 
-          if (bullets[i].x < 0 || bullets[i].x >= PANEL_WIDTH || bullets[i].y < 0 || bullets[i].y >= PANEL_HEIGHT) {
+          // Wrap X axis
+          if (bullets[i].x < 0) bullets[i].x = PANEL_WIDTH - 1;
+          else if (bullets[i].x >= PANEL_WIDTH) bullets[i].x = 0;
+
+          // Wrap Y axis
+          if (bullets[i].y < 0) bullets[i].y = PANEL_HEIGHT - 1;
+          else if (bullets[i].y >= PANEL_HEIGHT) bullets[i].y = 0;
+
+          // Deactivate bullet if it exceeds max travel distance
+          if (bullets[i].distanceTraveled >= MAX_BULLET_DISTANCE) {
             bullets[i].active = false;
           }
         }
@@ -327,14 +357,17 @@ public:
 
     // --- 6. ENEMY UPDATES ---
     if (now - lastEnemyMoveTime >= ENEMY_MOVE_INTERVAL_MS) {
-      for (int i = 0; i < NUM_ENEMIES; i++) {
+      for (int i = 0; i < activeEnemyCount; i++) {
         if (enemies[i].active) {
           enemies[i].x += enemies[i].dx;
           enemies[i].y += enemies[i].dy;
 
-          if (enemies[i].x < -4 || enemies[i].x >= PANEL_WIDTH + 4 || enemies[i].y < -4 || enemies[i].y >= PANEL_HEIGHT + 4) {
-            spawnEnemy(i);
-          }
+          // Wrap enemies cleanly across matrix borders
+          if (enemies[i].x < -2) enemies[i].x = PANEL_WIDTH + 2;
+          else if (enemies[i].x > PANEL_WIDTH + 2) enemies[i].x = -2;
+
+          if (enemies[i].y < -2) enemies[i].y = PANEL_HEIGHT + 2;
+          else if (enemies[i].y > PANEL_HEIGHT + 2) enemies[i].y = -2;
         }
       }
       lastEnemyMoveTime = now;
@@ -356,29 +389,55 @@ public:
       lastParticleTime = now;
     }
 
-    // --- 8. BULLET vs ENEMY COLLISIONS ---
-    if (currentState == STATE_PLAYING) {
-      for (int b = 0; b < MAX_BULLETS; b++) {
-        if (!bullets[b].active) continue;
+// --- 8. BULLET vs ENEMY COLLISIONS ---
+if (currentState == STATE_PLAYING) {
+  for (int b = 0; b < MAX_BULLETS; b++) {
+    if (!bullets[b].active) continue;
 
-        for (int e = 0; e < NUM_ENEMIES; e++) {
-          if (!enemies[e].active) continue;
+    for (int e = 0; e < activeEnemyCount; e++) {
+      if (!enemies[e].active) continue;
 
-          int dist = abs(bullets[b].x - enemies[e].x) + abs(bullets[b].y - enemies[e].y);
-          if (dist <= 2) {
-            bullets[b].active = false;
-            score += 100;
-            spawnEnemy(e);
-            break;
-          }
+      int dx = abs(bullets[b].x - enemies[e].x);
+      int dy = abs(bullets[b].y - enemies[e].y);
+
+      if (dx > PANEL_WIDTH / 2) dx = PANEL_WIDTH - dx;
+      if (dy > PANEL_HEIGHT / 2) dy = PANEL_HEIGHT - dy;
+
+      int dist = dx + dy;
+      if (dist <= 2) {
+        bullets[b].active = false;
+        score += 100;
+        spawnEnemy(e);
+
+        // --- SCALE ENEMIES EVERY 1000 POINTS ---
+        int desiredEnemies = INITIAL_ENEMIES + (score / 1000);
+        if (desiredEnemies > MAX_ENEMIES) desiredEnemies = MAX_ENEMIES;
+
+        // If threshold crossed, activate and spawn the next enemy slot
+        if (desiredEnemies > activeEnemyCount) {
+          int newIndex = activeEnemyCount;
+          activeEnemyCount = desiredEnemies;
+          spawnEnemy(newIndex);
         }
+
+        break;
       }
+    }
+  }
 
       // --- 9. PLAYER vs ENEMY COLLISIONS ---
-      for (int e = 0; e < NUM_ENEMIES; e++) {
+      for (int e = 0; e < activeEnemyCount; e++) {
         if (!enemies[e].active) continue;
 
-        int dist = abs(playerX - enemies[e].x) + abs(playerY - enemies[e].y);
+        // Calculate wrapped shortest distance
+        int dx = abs(playerX - enemies[e].x);
+        int dy = abs(playerY - enemies[e].y);
+
+        if (dx > PANEL_WIDTH / 2) dx = PANEL_WIDTH - dx;
+        if (dy > PANEL_HEIGHT / 2) dy = PANEL_HEIGHT - dy;
+
+        int dist = dx + dy;
+
         if (dist <= 3) {
           currentState = STATE_EXPLODING;
           playerDeathTime = now;
@@ -468,7 +527,7 @@ public:
     }
 
     // Draw Enemies
-    for (int i = 0; i < NUM_ENEMIES; i++) {
+    for (int i = 0; i < activeEnemyCount; i++) {
       if (enemies[i].active) {
         int ex = enemies[i].x;
         int ey = enemies[i].y;
