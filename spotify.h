@@ -8,6 +8,8 @@
 
 extern int actualPanelX;
 extern int actualPanelY;
+extern bool prefSpotifyShowOnPause;
+extern bool spotifyIsPaused;
 
 class SpotifyWidget {
 private:
@@ -108,7 +110,9 @@ public:
 
                     if (isPlaying) {
                         fullDisplayStr = songTitle + " - " + artistName;
+                        spotifyIsPaused = false;
                     } else {
+                        spotifyIsPaused = true;
                         fullDisplayStr = "Spotify Paused";
                     }
 

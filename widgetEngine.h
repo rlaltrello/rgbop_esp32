@@ -26,6 +26,8 @@ extern GFXcanvas16 widgetCanvas;
 
 extern int prefTransitionTime;
 extern String prefSpotifyRefreshToken;
+extern bool spotifyIsPaused;
+extern bool prefSpotifyShowOnPause;
 
 // Mario font provided by main.ino
 extern CustomMarioFont myMarioFont;
@@ -419,6 +421,7 @@ static void showSpotify() {
     if (gameManager.isGameModeActive()) return;
     spotifyWidget.begin(prefSpotifyRefreshToken);
     spotifyWidget.fetchSpotifyStatus();
+    if (spotifyIsPaused && !prefSpotifyShowOnPause) return;
 
     if (gameManager.isGameModeActive()) return;
     spotifyWidget.resetScroll(64);

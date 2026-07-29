@@ -71,8 +71,19 @@ bool prefShowTextBlast = true;
 bool prefShowDoodles = true;
 bool prefShowEarthquake = true;
 bool prefShowSpotify = true;
+bool prefSpotifyShowOnPause = true;
 bool prefShowDiags = true;
 bool prefShowRadar = true;
+bool spotifyIsPaused = true;
+
+
+int prefTextBlastTextScale= 1;
+bool prefTextBlastTextCustomMessage = false;
+String prefTextBlastText = "";
+int prefTextBlastTextColor = 0x00FFFF00;
+int prefTextBlastBackgroundColor = 0x00000000;
+int prefTextBlastCycles = 1;
+float prefTextBlastSpeed = 40.0;
 
 float prefLat = 34.16;
 float prefLng = -84.80;
@@ -563,7 +574,6 @@ void loop() {
             lastRenderTime = now;
         }
         yield();
-
         return;
     }
     // If waiting for BLE credentials, block the rest of the loop

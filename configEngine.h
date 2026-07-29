@@ -20,8 +20,17 @@ extern bool prefShowTextBlast;
 extern bool prefShowDoodles;
 extern bool prefShowEarthquake;
 extern bool prefShowSpotify;
+extern bool prefSpotifyShowOnPause;
 extern bool prefShowDiags;
 extern bool prefShowRadar;
+
+extern int prefTextBlastTextScale;
+extern bool prefTextBlastTextCustomMessage;
+extern String prefTextBlastText;
+extern int prefTextBlastTextColor;
+extern int prefTextBlastBackgroundColor;
+extern int prefTextBlastCycles;
+extern float prefTextBlastSpeed;
 
 extern float prefLat;
 extern float prefLng;
@@ -79,9 +88,29 @@ static bool loadConfig() {
     prefShowDoodles = doc["doodles"] | true;
     prefShowEarthquake = doc["earthquake"] | true;
     prefShowSpotify = doc["spotify"] | true;
+    prefSpotifyShowOnPause = doc["spotifyShowOnPause"] | true;
     prefShowDiags = doc["diags"] | true;
     prefShowRadar = doc["radar"] | true;
  
+prefTextBlastTextScale = doc["textBlastTextScale"] | 1;
+prefTextBlastTextCustomMessage = doc["textBlastTextCustomMessage"] | false;
+prefTextBlastText = doc["textBlastText"] | "";
+prefTextBlastTextColor = doc["textBlastTextColor"] | 0x00FFFF00;
+prefTextBlastBackgroundColor = doc["textBlastBackgroundColor"] | 0x00000000;
+
+// Use explicit casting for cycles and speed:
+if (!doc["textBlastCycles"].isNull()) {
+    prefTextBlastCycles = doc["textBlastCycles"].as<int>();
+} else {
+    prefTextBlastCycles = 1;
+}
+
+if (!doc["textBlastSpeed"].isNull()) {
+    prefTextBlastSpeed = doc["textBlastSpeed"].as<float>();
+} else {
+    prefTextBlastSpeed = 40.0f;
+}
+
     prefLat = doc["lat"] | 34.16;
     prefLng = doc["lng"] | -84.80;
 
@@ -148,8 +177,17 @@ void saveConfig() {
     doc["doodles"] = prefShowDoodles;
     doc["earthquake"] = prefShowEarthquake;
     doc["spotify"] = prefShowSpotify;
+    doc["spotifyShowOnPause"] = prefSpotifyShowOnPause;
     doc["diags"] = prefShowDiags;
     doc["radar"] = prefShowRadar;
+
+    doc["textBlastTextScale"] = prefTextBlastTextScale;
+    doc["textBlastTextCustomMessage"] = prefTextBlastTextCustomMessage;
+    doc["textBlastText"] = prefTextBlastText;
+    doc["textBlastTextColor"] = prefTextBlastTextColor;
+    doc["textBlastBackgroundColor"] = prefTextBlastBackgroundColor;
+    doc["textBlastCycles"] = prefTextBlastCycles;
+    doc["textBlastSpeed"] = prefTextBlastSpeed;
 
     doc["lat"] = prefLat;
     doc["lng"] = prefLng;

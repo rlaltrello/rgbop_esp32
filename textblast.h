@@ -5,6 +5,14 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 
+extern int prefTextBlastTextScale;
+extern bool prefTextBlastTextCustomMessage;
+extern String prefTextBlastText;
+extern int prefTextBlastTextColor;
+extern int prefTextBlastBackgroundColor;
+extern int prefTextBlastCycles;
+extern float prefTextBlastSpeed;
+
 class TextBlastWidget {
 private:
     std::string currentMessage = "LOADING...";
@@ -68,9 +76,13 @@ public:
                         targetCycles = doc["cycles"].as<int>();
                         if (targetCycles < 1) targetCycles = 1; 
                     }
+
+                    if (prefTextBlastTextCustomMessage) {
+                        currentMessage = prefTextBlastText.c_str();
+                    }
                     
                     Serial.printf("TextBlast: %s | Color: 0x%06X | BG: 0x%06X | Font: %s | Scale: %d | Cycles: %d\n", 
-                                  currentMessage.c_str(), currentColor, currentBackground, currentFont.c_str(), currentScale, targetCycles);
+                                  currentMessage.c_str(), prefTextBlastTextColor, prefTextBlastBackgroundColor, currentFont.c_str(), prefTextBlastTextScale, prefTextBlastCycles);
                 } else {
                     Serial.print("TextBlast JSON parse failed: ");
                     Serial.println(error.c_str());
@@ -94,46 +106,46 @@ public:
     bool draw(CtxType* ctx, FontType* normalFont, MarioFontType* marioFont, int width, int height, unsigned long nowMs) {
         
         if (currentFont == "mario") {
-            textWidth = marioFont->getTextWidth(currentMessage, currentScale);
+            textWidth = marioFont->getTextWidth(currentMessage, prefTextBlastTextScale);
         } else {
-            textWidth = normalFont->getTextWidth(currentMessage, currentScale);
+            textWidth = normalFont->getTextWidth(currentMessage, prefTextBlastTextScale);
         }
 
         if (lastUpdateMs == 0) lastUpdateMs = nowMs;
         float dt = (nowMs - lastUpdateMs) / 1000.0f;
         lastUpdateMs = nowMs;
         
-        float scrollSpeed = 40.0f; 
-        scrollX -= scrollSpeed * dt;
+        //float scrollSpeed = 40.0f; 
+        scrollX -= prefTextBlastSpeed * dt;
 
         if (scrollX < -textWidth) {
             scrollX = width; 
             currentCycles++; 
             
-            if (currentCycles >= targetCycles) {
+            if (currentCycles >= prefTextBlastCycles) {
                 return true; 
             }
         }
 
         // --- Draw Background dynamically ---
-        ctx->setFillStyle(currentBackground);
+        ctx->setFillStyle(prefTextBlastBackgroundColor);
         ctx->fillRect(0, 0, width, height);
         
         // Set Text Color
-        ctx->setFillStyle(currentColor);
+        ctx->setFillStyle(prefTextBlastTextColor);
 
         // --- Dynamic Vertical Centering Math ---
         // Center of the 64px display is Y=32. We adjust based on font height (7 or 8px) * scale.
         if (currentFont == "mario") {
             // Mario glyphs have a -6 Y offset (meaning they draw upwards from the cursor).
             // To center it, the cursor needs to be pushed down proportionally as it scales up.
-            int yPos = 32 + static_cast<int>(2.5 * currentScale);
-            marioFont->drawText(ctx, currentMessage, static_cast<int>(scrollX), yPos, currentScale);
+            int yPos = 32 + static_cast<int>(2.5 * prefTextBlastTextScale);
+            marioFont->drawText(ctx, currentMessage, static_cast<int>(scrollX), yPos, prefTextBlastTextScale);
         } else {
             // The Adafruit font draws top-down. The MatrixFont wrapper subtracts 7 internally.
             // True center = 32 - (total_height / 2). Total height = 8 * scale.
-            int yPos = 39 - (4 * currentScale);
-            normalFont->drawText(ctx, currentMessage, static_cast<int>(scrollX), yPos, currentScale);
+            int yPos = 39 - (4 * prefTextBlastTextScale);
+            normalFont->drawText(ctx, currentMessage, static_cast<int>(scrollX), yPos, prefTextBlastTextScale);
         }
 
         return false;
