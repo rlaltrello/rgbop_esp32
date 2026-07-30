@@ -2,6 +2,8 @@
 
 An ESP32-powered HUB75 RGB matrix information display that rotates through a collection of internet-connected widgets including weather, radar, clocks, aviation tracking, ISS tracking, Spotify status, earthquakes, custom messages, diagnostics, and user-created artwork.
 
+Configuration is controlled through mobile app.
+
 Built for ESP32 and HUB75 RGB LED matrix panels using the ESP32-HUB75-MatrixPanel-I2S-DMA library for high-performance rendering.
 
 ---
@@ -10,6 +12,7 @@ Built for ESP32 and HUB75 RGB LED matrix panels using the ESP32-HUB75-MatrixPane
 
 ### Display Widgets
 
+- Animated GIFs
 - Animated clock display
 - Morphing digital clock
 - Date progress indicator
@@ -98,6 +101,7 @@ Available widgets include:
 
 | Widget | Description |
 |----------|-------------|
+|GIFs | cycled GIFs from littleFS |
 | Clock | Mario-style clock display |
 | Morph Clock | Animated digital clock |
 | Date | Year progress indicator |
