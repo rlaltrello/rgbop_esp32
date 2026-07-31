@@ -3,6 +3,8 @@
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 
+// for interfacing with RGBop mobile app
+
 // Externs provided by main.ino
 extern WebServer server;
 extern String gifDir;

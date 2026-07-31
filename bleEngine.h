@@ -1,6 +1,8 @@
 #pragma once
 #include <NimBLEDevice.h>
 
+// RGBop mobile app initially start with bluetooth to ask for wifi credentials 
+
 // ------------------------------------------------------------
 // EXTERNS PROVIDED BY main.ino
 // ------------------------------------------------------------

@@ -11,6 +11,9 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
+// Credit / inspiration from Weather Map by Felix Bruns from tronbyt project
+
+
 enum class RadarTimeFormat { OFF, FORMAT_12H, FORMAT_24H };
 enum class RadarUnitFormat { OFF, KM, MI };
 

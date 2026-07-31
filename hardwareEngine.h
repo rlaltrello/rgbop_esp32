@@ -21,9 +21,9 @@ extern bool currentIsNight;
 // HARDWARE SELECTION
 // ------------------------------------------------------------
 
-//#define USE_PANEL_LAYLA  // <--- UNCOMMENT THIS LINE FOR LAYLA, COMMENT OUT FOR STANDARD S3
+//#define USE_SEENGREAT_BOARD  // <--- UNCOMMENT THIS LINE FOR SEENGREAT RGB Matrix Adapter Board, COMMENT OUT FOR STANDARD ESP32-S3 (pins 1-14)
 
-#ifdef USE_PANEL_LAYLA
+#ifdef USE_SEENGREAT_BOARD
     // --- Panel Layla Pinout ---
     #define R1_PIN  18
     #define G1_PIN  8

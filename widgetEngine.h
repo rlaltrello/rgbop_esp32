@@ -42,7 +42,14 @@ GFXcanvas16 widgetCanvas(actualPanelX, actualPanelY);
 extern GFXcanvas16 weatherCanvas; 
 
 class MatrixFont : public Font {
+private:
+    const GFXfont* currentGfxFont = nullptr;
 public:
+
+    void setFont(const GFXfont* f = nullptr) {
+        currentGfxFont = f;
+    }
+
     void drawText(GraphicsContext* ctx, const std::string& text, int x, int y) override {
         widgetCanvas.setTextWrap(false);
         widgetCanvas.setTextSize(1);
@@ -356,7 +363,7 @@ static void showPlanes() {
         gameManager.update();
         if (gameManager.isGameModeActive()) return;
 
-        planesWidget.draw(&widgetGraphics, &widgetFont, actualPanelX, actualPanelY, millis());
+        planesWidget.draw();
         pushCanvasToMatrix();
         delay(30);
     }

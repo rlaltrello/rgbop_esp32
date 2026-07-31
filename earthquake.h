@@ -7,6 +7,8 @@
 #include <ArduinoJson.h>
 #include <math.h>
 
+// Credit / inspiration from Earthquake Map by Brian McLaughlin (SpinStabilized) from tronbyt project
+
 struct QuakeEvent {
     int x;
     int y;
@@ -170,8 +172,8 @@ public:
         font->drawColorText(ctx, titleText.c_str(), titleX, 11, 0xFFA500);
 
         if (quakeCount == 0) {
-            if (apiError) font->drawColorText(ctx, "USGS ERR", (width - 48) / 2, 24, 0xFF0000);
-            else font->drawText(ctx, "LOADING...", (width - 60) / 2, 20);
+            if (apiError) font->drawColorText(ctx, "USGS ERR", (width - 48) / 2, 34, 0xFF0000);
+            else font->drawText(ctx, "LOADING...", (width - 60) / 2, 34);
             isAnimating = false; // Reset state for next cycle
             return true;
         }

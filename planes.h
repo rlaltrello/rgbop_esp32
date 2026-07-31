@@ -6,6 +6,14 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <math.h>
+#include <Fonts/TomThumb.h>
+
+
+
+// Credit / inspiration from Planes Overhead by Conor McLaughlin from tronbyt project
+
+
+extern GFXcanvas16 widgetCanvas;
 
 class PlanesWidget {
 private:
@@ -30,6 +38,13 @@ private:
     float closestDist = 0.0;
     int closestAlt = 0;
     int closestSpeed = 0;
+
+    uint16_t hexTo565(uint32_t color) {
+        uint8_t r = (color >> 16) & 0xFF;
+        uint8_t g = (color >> 8) & 0xFF;
+        uint8_t b = color & 0xFF;
+        return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+    }
 
     float getHaversineDistance(float lat1, float lon1, float lat2, float lon2) {
         float R = 6371.0; 
@@ -236,37 +251,62 @@ public:
         return success;
     }
 
-    void draw(GraphicsContext* ctx, Font* font, int width, int height, unsigned long currentTime) {
-        ctx->setFillStyle(0x000000); 
-        ctx->fillRect(0, 0, width, height);
 
-        ctx->setFillStyle(0x000044); 
-        ctx->fillRect(0, 0, width, 9);
 
-        ctx->setFillStyle(0x00FFFF); 
-        ctx->fillRect(0, 9, width, 1);
+        
 
-        font->drawColorText(ctx, "PLANE TRAX", 2, 8, 0x00FFFF);
+    void draw() {
+        widgetCanvas.fillScreen(0x0000); 
+
+        // 1. TOP SECTION: "PLANE TRAX" Blue Badge
+        widgetCanvas.fillRect(0, 0, 64, 11, hexTo565(0x2D38BF));
+        widgetCanvas.setFont(); 
+        widgetCanvas.setTextWrap(false);
+        widgetCanvas.setTextSize(1);
+        widgetCanvas.setTextColor(hexTo565(0x00FFFF)); 
+        widgetCanvas.setCursor(2, 2); 
+        widgetCanvas.print("PLANE TRAX");
+
+        // First Divider Line
+        widgetCanvas.drawLine(0, 13, 64, 13, hexTo565(0x222222));
+
+        // 2. MIDDLE SECTION: Coordinates
+
+        widgetCanvas.setTextColor(hexTo565(0x888888));
+
+        
 
         // NEW: Intercept the screen and show the error in bright red (RGB565 = 0xF800)
         if (apiError) {
-            font->drawColorText(ctx, "CHECK API", 6, 34, 0xFF0000); 
-            font->drawColorText(ctx, "SETTINGS", 10, 46, 0xFFFF00);
+            widgetCanvas.setCursor(6, 34);
+            widgetCanvas.print("CHECK API"); 
+            widgetCanvas.setCursor(10, 46);
+            widgetCanvas.print("SETTINGS");
             return;
         }
 
         if (!hasPlane) {
-            font->drawText(ctx, "NO PLANES", 5, 34);
-            font->drawText(ctx, "OVERHEAD", 8, 46);
+            widgetCanvas.setCursor(5, 34); 
+            widgetCanvas.print("NO PLANES");
+            widgetCanvas.setCursor(8, 46); 
+            widgetCanvas.print("OVERHEAD");
             return;
         }
         
-        ctx->setFillStyle(0x00FF00); 
-        font->drawText(ctx, closestCallsign.c_str(), 2, 20);
-
-        font->drawText(ctx, displayLoc.c_str(), 2, 32);
-        font->drawText(ctx, displayAlt.c_str(), 2, 44);
-        font->drawText(ctx, displaySpd.c_str(), 2, 56);
+        //ctx->setFillStyle(0x00FF00); 
+        widgetCanvas.setTextColor(hexTo565(0x00BBBB));
+        widgetCanvas.setCursor(2, 16); 
+        widgetCanvas.print(closestCallsign.c_str());
+        widgetCanvas.setTextColor(hexTo565(0x888888));
+        widgetCanvas.setTextSize(0);
+        widgetCanvas.setFont(&TomThumb);
+        widgetCanvas.setCursor(2, 33); 
+        widgetCanvas.print(displayLoc.c_str());
+        widgetCanvas.setCursor(2, 44); 
+        widgetCanvas.print(displayAlt.c_str());
+        widgetCanvas.setCursor(2, 55); 
+        widgetCanvas.print(displaySpd.c_str());
+        widgetCanvas.setFont(); 
     }
 };
 

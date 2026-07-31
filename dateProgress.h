@@ -5,6 +5,8 @@
 #include <cmath>
 #include <algorithm>
 
+// Credit / inspiration from Date Progress by possan from tronbyt project
+
 class DateProgressWidget {
 private:
     unsigned long lastDrawn = 0;

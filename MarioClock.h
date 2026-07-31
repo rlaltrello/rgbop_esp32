@@ -4,6 +4,8 @@
 #include <Arduino.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
+// Credit / inspiration from mariobros-clock (https://github.com/jnthas/mariobros-clock) by jnthas from clockwise project
+
 // Tell this file that dma_display exists in your main sketch
 extern MatrixPanel_I2S_DMA *dma_display;
 extern bool currentIsNight;

@@ -7,6 +7,8 @@
 #include <Adafruit_GFX.h>
 #include <Fonts/TomThumb.h>
 
+// Credit / inspiration from ISS Location by carmineguida from tronbyt project
+
 extern GFXcanvas16 widgetCanvas;
 
 class IssLocationWidget {

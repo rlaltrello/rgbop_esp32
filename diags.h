@@ -41,8 +41,8 @@ ctx->fillRect(2 * thirdWidth, 0, width - (2 * thirdWidth), height);
     // Calculate total pixels shift elapsed
     unsigned long totalPixelsMoved = currentTime / msPerPixel;
 
-    // Exit early if 2 full passes (2 * totalDistance) have completed
-    if (totalPixelsMoved >= (unsigned long)(2 * totalDistance)) {
+    // Exit early if 1 full passes (1 * totalDistance) have completed
+    if (totalPixelsMoved >= (unsigned long)(1 * totalDistance)) {
         return true; // Signal completion to caller
     }
 
