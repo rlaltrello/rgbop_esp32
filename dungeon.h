@@ -7,18 +7,41 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <vector>
+#include <map>
+#include <Fonts/TomThumb.h>
 
 #define DRAW_DISTANCE 3
 
+struct ItemInfo {
+  String name;
+  String color;
+  bool collectible;
+};
+
 class Dungeon {
+public:
+  enum DungeonState {
+    STATE_PLAYING,
+    STATE_INVENTORY
+  };
+
 private:
   int playerX;
   int playerY;
   int playerDir; // 0: N, 1: E, 2: S, 3: W
 
   std::vector<std::vector<uint8_t>> map;
+  std::vector<std::vector<String>> itemMap;
+  std::map<String, ItemInfo> itemDefinitions;
+  std::vector<ItemInfo> playerInventory;
+
+  DungeonState currentState = STATE_PLAYING;
+
   int mapSizeX = 0;
   int mapSizeY = 0;
+  uint16_t wallColor = 0x07E0; // Default green (RGB565)
+
+  String activeMessage = "";
 
   const int depthInset[DRAW_DISTANCE + 1] = { 0, 14, 22, 27 };
 
@@ -32,24 +55,48 @@ private:
     return map[y][x] == 1;
   }
 
+  uint16_t parseHexColor(const char* hexStr) {
+    if (!hexStr) return 0x07E0;
+    if (hexStr[0] == '#') hexStr++;
+    long number = strtol(hexStr, NULL, 16);
+    uint8_t r = (number >> 16) & 0xFF;
+    uint8_t g = (number >> 8) & 0xFF;
+    uint8_t b = number & 0xFF;
+    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+  }
+
+  void checkForItemAtPlayerPos() {
+    activeMessage = ""; // Clear text when leaving the previous tile
+    if (playerY >= 0 && playerY < itemMap.size() && playerX >= 0 && playerX < itemMap[0].size()) {
+      String itemKey = itemMap[playerY][playerX];
+      itemKey.trim();
+      if (itemKey.length() > 0 && itemKey != " ") {
+        if (itemDefinitions.count(itemKey)) {
+          ItemInfo info = itemDefinitions[itemKey];
+          activeMessage = info.name;
+        } else {
+          activeMessage = itemKey;
+        }
+      }
+    }
+  }
+
 public:
-  Dungeon(int startX = 4, int startY = 4, int startDir = 0)
+  Dungeon(int startX = 1, int startY = 1, int startDir = 0)
     : playerX(startX), playerY(startY), playerDir(startDir) {
     
-    // Default fallback map (9x9) if API load fails or isn't called yet
     map = {
-      {1, 1, 1, 1, 1, 1, 1, 1, 1},
-      {1, 0, 0, 0, 0, 0, 0, 0, 1},
-      {1, 0, 1, 0, 1, 1, 1, 0, 1},
-      {1, 0, 0, 0, 1, 0, 0, 0, 1},
-      {1, 0, 1, 1, 1, 0, 1, 1, 1},
-      {1, 0, 1, 0, 0, 0, 1, 1, 1},
-      {1, 0, 1, 1, 0, 1, 1, 1, 1},
-      {1, 1, 1, 1, 1, 1, 1, 1, 1},
-      {1, 1, 1, 1, 1, 1, 1, 1, 1}
+      {1, 1, 1, 1, 1, 1, 1, 1},
+      {1, 0, 0, 0, 0, 0, 0, 1},
+      {1, 0, 1, 1, 1, 1, 0, 1},
+      {1, 0, 1, 1, 0, 0, 0, 1},
+      {1, 0, 1, 1, 0, 1, 1, 1},
+      {1, 0, 1, 0, 0, 1, 1, 1},
+      {1, 0, 1, 1, 0, 1, 1, 1},
+      {1, 1, 1, 1, 1, 1, 1, 1}
     };
-    mapSizeX = 9;
-    mapSizeY = 9;
+    mapSizeX = 8;
+    mapSizeY = 8;
   }
 
   bool loadMap(const char* url) {
@@ -76,20 +123,27 @@ public:
         return false;
       }
 
-      // Supports both a raw 2D array [[...]] or an object wrapper like {"map": [[...]]}
-      JsonArray jmap;
-      if (doc.is<JsonArray>()) {
-        jmap = doc.as<JsonArray>();
-      } else if (doc["map"].is<JsonArray>()) {
-        jmap = doc["map"].as<JsonArray>();
-      } else {
-        Serial.println("Invalid JSON structure: No map array found.");
-        http.end();
-        return false;
+      if (doc["color"].is<const char*>()) {
+        wallColor = parseHexColor(doc["color"]);
       }
 
-      int rows = jmap.size();
-      if (rows > 0) {
+      // Parse items metadata dictionary
+      JsonObject jitems = doc["items"].as<JsonObject>();
+      itemDefinitions.clear();
+      for (JsonPair kv : jitems) {
+        String key = kv.key().c_str();
+        JsonObject itemObj = kv.value().as<JsonObject>();
+        ItemInfo info;
+        info.name = itemObj["name"].as<String>();
+        info.color = itemObj["color"].as<String>();
+        info.collectible = itemObj["collectible"].as<bool>();
+        itemDefinitions[key] = info;
+      }
+
+      // Parse map array
+      JsonArray jmap = doc["map"].as<JsonArray>();
+      if (!jmap.isNull() && jmap.size() > 0) {
+        int rows = jmap.size();
         int cols = jmap[0].as<JsonArray>().size();
         
         std::vector<std::vector<uint8_t>> tempMap;
@@ -103,15 +157,34 @@ public:
           }
         }
 
-        // Commit new map data and dimensions
         map = tempMap;
         mapSizeY = rows;
         mapSizeX = cols;
-
-        Serial.printf("Map successfully updated: %dx%d\n", mapSizeX, mapSizeY);
-        http.end();
-        return true;
       }
+
+      // Parse itemMap array
+      JsonArray jitemMap = doc["itemMap"].as<JsonArray>();
+      if (!jitemMap.isNull() && jitemMap.size() > 0) {
+        int rows = jitemMap.size();
+        int cols = jitemMap[0].as<JsonArray>().size();
+        
+        std::vector<std::vector<String>> tempItemMap;
+        tempItemMap.resize(rows);
+        
+        for (int i = 0; i < rows; i++) {
+          tempItemMap[i].resize(cols);
+          JsonArray rowArray = jitemMap[i].as<JsonArray>();
+          for (int j = 0; j < cols; j++) {
+            tempItemMap[i][j] = rowArray[j].as<String>();
+          }
+        }
+
+        itemMap = tempItemMap;
+      }
+
+      Serial.printf("Map successfully updated: %dx%d\n", mapSizeX, mapSizeY);
+      http.end();
+      return true;
     } else {
       Serial.print("HTTP GET Error code: ");
       Serial.println(httpResponseCode);
@@ -122,9 +195,13 @@ public:
   }
 
   void reset() {
-    playerX = 4;
-    playerY = 4;
+    playerX = 1;
+    playerY = 1;
     playerDir = 0;
+    activeMessage = "";
+    currentState = STATE_PLAYING;
+    playerInventory.clear();
+    checkForItemAtPlayerPos();
   }
 
   void moveForward() {
@@ -133,6 +210,7 @@ public:
     if (!isWallAt(nextX, nextY)) {
       playerX = nextX;
       playerY = nextY;
+      checkForItemAtPlayerPos();
     }
   }
 
@@ -142,23 +220,130 @@ public:
 
   void update(const GameInputState& input) {
     static bool buttonHeld = false;
+    static bool aButtonHeld = false;
+    static bool bButtonHeld = false;
+    static bool anyButtonHeld = false;
 
-    if (input.up) {
-      if (!buttonHeld) { moveForward(); buttonHeld = true; }
-    } else if (input.left) {
-      if (!buttonHeld) { turnLeft(); buttonHeld = true; }
-    } else if (input.right) {
-      if (!buttonHeld) { turnRight(); buttonHeld = true; }
-    } else if (input.down) {
-      if (!buttonHeld) { turnAround(); buttonHeld = true; }
-    } else {
-      buttonHeld = false;
+    if (currentState == STATE_PLAYING) {
+      if (input.up) {
+        if (!buttonHeld) { moveForward(); buttonHeld = true; }
+      } else if (input.left) {
+        if (!buttonHeld) { turnLeft(); buttonHeld = true; }
+      } else if (input.right) {
+        if (!buttonHeld) { turnRight(); buttonHeld = true; }
+      } else if (input.down) {
+        if (!buttonHeld) { turnAround(); buttonHeld = true; }
+      } else {
+        buttonHeld = false;
+      }
+
+      // Handle 'btnA' button press to collect collectible items
+      if (input.btnA) {
+        if (!aButtonHeld) {
+          if (playerY >= 0 && playerY < itemMap.size() && playerX >= 0 && playerX < itemMap[0].size()) {
+            String itemKey = itemMap[playerY][playerX];
+            itemKey.trim();
+            if (itemKey.length() > 0 && itemKey != " ") {
+              if (itemDefinitions.count(itemKey)) {
+                ItemInfo info = itemDefinitions[itemKey];
+                if (info.collectible) {
+                  playerInventory.push_back(info);
+                  itemMap[playerY][playerX] = " ";
+                  activeMessage = ""; // Clear text when collected
+                  Serial.printf("Collected: %s\n", info.name.c_str());
+                }
+              }
+            }
+          }
+          aButtonHeld = true;
+        }
+      } else {
+        aButtonHeld = false;
+      }
+
+      // Handle 'btnB' button press to open inventory
+      if (input.btnB) {
+        if (!bButtonHeld) {
+          currentState = STATE_INVENTORY;
+          bButtonHeld = true;
+          anyButtonHeld = true; // Prevent immediate re-trigger on exit
+        }
+      } else {
+        bButtonHeld = false;
+      }
+
+    } else if (currentState == STATE_INVENTORY) {
+      // Check if any button is pressed to return to the game
+      bool anyPressed = input.up || input.down || input.left || input.right || input.btnA || input.btnB;
+      if (anyPressed) {
+        if (!anyButtonHeld) {
+          currentState = STATE_PLAYING;
+          anyButtonHeld = true;
+        }
+      } else {
+        anyButtonHeld = false;
+      }
     }
   }
 
+  void drawKeySprite(MatrixPanel_I2S_DMA& display, int startX, int startY, uint16_t color) {
+  // 9 columns x 5 rows pixel art representation of a key
+  const char* keySprite[5] = {
+    "011000000",
+    "100100000",
+    "101111111",
+    "100100010",
+    "011000000"
+  };
+
+  int rows = 5;
+  int cols = 9;
+
+  for (int y = 0; y < rows; y++) {
+    for (int x = 0; x < cols; x++) {
+      if (keySprite[y][x] == '1') {
+        display.drawPixel(startX + x, startY + y, color);
+      }
+    }
+  }
+}
+
   void draw(MatrixPanel_I2S_DMA& display) {
     display.fillScreen(0);
-    uint16_t color = display.color565(0, 255, 0); // Green wireframe
+
+    // Handle inventory screen rendering
+    if (currentState == STATE_INVENTORY) {
+      display.setFont(&TomThumb);
+      display.setTextSize(1);
+      display.setTextColor(display.color565(255, 255, 255));
+      
+      display.setCursor(2, 6);
+      display.print("INVENTORY");
+      
+int yPos = 16;
+if (playerInventory.empty()) {
+  display.setCursor(2, yPos);
+  display.print("Empty");
+} else {
+  for (const auto& item : playerInventory) {
+    // If the item is a key, draw the sprite icon next to it
+    if (item.name == "Key" || item.name.indexOf("Key") != -1) {
+      drawKeySprite(display, 2, yPos + 1 - 5, parseHexColor(item.color.c_str())); // key icon
+      display.setCursor(13, yPos + 1); // Offset text past the 9px wide icon
+    } else {
+      display.setCursor(2, yPos);
+    }
+    
+    display.print(item.name);
+    yPos += 10; // Give a bit more vertical spacing for icons
+    if (yPos > 60) break; 
+  }
+}
+      return;
+    }
+
+    // Handle 3D Dungeon view rendering
+    uint16_t color = wallColor;
 
     int d;
     bool drawing = true;
@@ -316,6 +501,39 @@ public:
     if (isWallAt(playerX + (fwdX[playerDir] * d), playerY + (fwdY[playerDir] * d))) {
       display.drawRect(box, box, 64 - (box * 2), 64 - (box * 2), color);
     } 
+
+// Render active item message or sprite
+    if (activeMessage.length() > 0) {
+      // Check if the current item is a key
+      String itemKey = "";
+      if (playerY >= 0 && playerY < itemMap.size() && playerX >= 0 && playerX < itemMap[0].size()) {
+        itemKey = itemMap[playerY][playerX];
+        itemKey.trim();
+      }
+      
+      bool isKey = false;
+      String colorStr = "#ffffff";
+      if (itemDefinitions.count(itemKey)) {
+        ItemInfo info = itemDefinitions[itemKey];
+        if (info.name.indexOf("Key") != -1) {
+          isKey = true;
+          colorStr = info.color;
+        }
+      }
+
+      if (isKey) {
+        // Center the 9x5 key horizontally: (64 - 9) / 2 = 27
+        // Position vertically at y = 57 so it fits nicely within bounds (rows 57–61)
+        drawKeySprite(display, 27, 57, parseHexColor(colorStr.c_str()));
+      } else {
+        // Fallback to text popup for non-key items (like "Stairs Down")
+        display.setFont(&TomThumb);
+        display.setTextSize(1);
+        display.setTextColor(display.color565(255, 255, 255));
+        display.setCursor(2, 60);
+        display.print(activeMessage);
+      }
+    }
   }
 };
 
