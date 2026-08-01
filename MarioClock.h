@@ -352,6 +352,7 @@ namespace MarioClock {
             dma_display->drawRGBBitmap(offsetX, offsetY, clockCanvas.getBuffer(), 64, 64);
 
             lastFrameTime = now;
+            dma_display->flipDMABuffer();
         }
     }
 }

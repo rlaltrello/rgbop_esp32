@@ -564,6 +564,7 @@ if (currentState == STATE_PLAYING) {
 
     drawScore(display);
     display.setFont(NULL);
+    display.flipDMABuffer();
   }
 
 private:

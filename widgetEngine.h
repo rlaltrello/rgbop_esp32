@@ -176,6 +176,7 @@ static void pushCanvasToMatrix() {
     } else {
         dma_display->drawRGBBitmap(0, 0, widgetCanvas.getBuffer(), actualPanelX, actualPanelY);
     }
+    dma_display->flipDMABuffer();
 }
 
 // ------------------------------------------------------------

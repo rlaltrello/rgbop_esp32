@@ -141,6 +141,7 @@ static void playGIF(const char* path, uint32_t durationMs = 10000) {
     dma_display->flipDMABuffer(); // Clear back buffer if double buffering is enabled
     dma_display->fillScreen(0);
 
+
     while (millis() - gifStartTick < durationMs) {
         // Keep network and WebSockets serviced
         server.handleClient();

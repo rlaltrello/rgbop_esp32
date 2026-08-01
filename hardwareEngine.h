@@ -94,7 +94,9 @@ static void setupMatrixHardware() {
     mxconfig.driver = HUB75_I2S_CFG::FM6124;
     mxconfig.clkphase = false;
     mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
-    mxconfig.latch_blanking = 4; 
+    mxconfig.latch_blanking = 4;
+
+    mxconfig.double_buff = true;
 
     // Allocate the display
     dma_display = new MatrixPanel_I2S_DMA(mxconfig);
@@ -112,6 +114,7 @@ static void setupMatrixHardware() {
 
     // Boot diagnostics pixel
     dma_display->drawPixel(0, 0, dma_display->color565(0, 0, 255));
+    dma_display->flipDMABuffer();
 
     Serial.println("[HARDWARE] HUB75 panel initialized.");
 }
@@ -134,4 +137,5 @@ static void drawDiagnostics() {
             ? dma_display->color565(0, 255, 0)
             : dma_display->color565(255, 0, 0)
     );
+    dma_display->flipDMABuffer();
 }

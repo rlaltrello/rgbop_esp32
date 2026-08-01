@@ -368,6 +368,8 @@ void drawBluetoothWaiting() {
   // 7. Center to Top Left
   dma_display->drawLine(cx, cy, cx - size, cy - size, btColor);
 
+  dma_display->flipDMABuffer();
+
   // Optional: Draw a subtle bounding box or text
   // myFont.drawText(&myGraphics, "SETUP", 18, 60);
 }
