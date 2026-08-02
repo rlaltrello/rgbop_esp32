@@ -96,7 +96,12 @@ static void setupMatrixHardware() {
     mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;
     mxconfig.latch_blanking = 4;
 
-    mxconfig.double_buff = true;
+    //double_buff works great, but obliterates delta GIFs so leaving it off
+    //Rest of code / widgets are configure to use it when enabled
+
+    //mxconfig.double_buff = true; 
+
+
 
     // Allocate the display
     dma_display = new MatrixPanel_I2S_DMA(mxconfig);
