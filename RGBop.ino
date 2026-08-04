@@ -73,6 +73,7 @@ bool prefShowDoodles = true;
 bool prefShowEarthquake = true;
 bool prefShowSpotify = true;
 bool prefSpotifyShowOnPause = true;
+bool prefSpotifyShowOnlyAlbumArt=false;
 bool prefShowDiags = true;
 bool prefShowRadar = true;
 bool spotifyIsPaused = true;

@@ -22,6 +22,7 @@ extern bool prefShowPlanes;
 extern bool prefShowEarthquake;
 extern bool prefShowSpotify;
 extern bool prefSpotifyShowOnPause;
+extern bool prefSpotifyShowOnlyAlbumArt;
 extern bool prefShowDiags;
 extern bool prefShowTextBlast;
 extern int prefTextBlastTextScale;
@@ -90,6 +91,7 @@ static void setupWebRoutes() {
         doc["earthquake"] = prefShowEarthquake;
         doc["spotify"] = prefShowSpotify;
         doc["spotifyShowOnPause"] = prefSpotifyShowOnPause;
+        doc["spotifyShowOnlyAlbumArt"] = prefSpotifyShowOnlyAlbumArt;
         doc["diags"] = prefShowDiags;
         doc["textblast"] = prefShowTextBlast;
         doc["textBlastTextScale"] = prefTextBlastTextScale;
@@ -150,6 +152,7 @@ static void setupWebRoutes() {
         if (doc.containsKey("earthquake")) prefShowEarthquake = doc["earthquake"];
         if (doc.containsKey("spotify")) prefShowSpotify = doc["spotify"];
         if (doc.containsKey("spotifyShowOnPause")) prefSpotifyShowOnPause = doc["spotifyShowOnPause"];
+        if (doc.containsKey("spotifyShowOnlyAlbumArt")) prefSpotifyShowOnlyAlbumArt = doc["spotifyShowOnlyAlbumArt"];
         if (doc.containsKey("diags")) prefShowDiags = doc["diags"];
         if (doc.containsKey("textblast")) prefShowTextBlast = doc["textblast"];
         if (doc.containsKey("textBlastTextScale")) prefTextBlastTextScale = doc["textBlastTextScale"];

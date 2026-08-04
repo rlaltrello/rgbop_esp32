@@ -9,6 +9,7 @@
 extern int actualPanelX;
 extern int actualPanelY;
 extern bool prefSpotifyShowOnPause;
+extern bool prefSpotifyShowOnlyAlbumArt;
 extern bool spotifyIsPaused;
 
 class SpotifyWidget {
@@ -65,9 +66,12 @@ public:
 
     void begin(String token) {
         refreshToken = token;
-        // Ensure vector has a default fallback capacity based on current panel dimensions
-        int artHeight = (actualPanelY > 16) ? (actualPanelY - 16) : 48;
-        albumArtPixels.resize(actualPanelX * artHeight * 3, 0);  
+        
+        int standardArtHeight = (actualPanelY > 16) ? (actualPanelY - 16) : 48;
+        int fullArtHeight = 64;
+        int maxArtHeight = (fullArtHeight > standardArtHeight) ? fullArtHeight : standardArtHeight;
+        
+        albumArtPixels.resize(actualPanelX * maxArtHeight * 3, 0);  
         scrollX = (float)actualPanelX;
     }
 
@@ -126,9 +130,8 @@ public:
                     }
 
                     const char* artBase64 = doc["art_rgb24"];
-                   if (artBase64 && strlen(artBase64) > 0) {
+                    if (artBase64 && strlen(artBase64) > 0) {
                         size_t base64Len = strlen(artBase64);
-                        // Base64 decodes into roughly 3/4 of the original string size
                         size_t maxDecodedLen = (base64Len * 3) / 4 + 4;
 
                         if (albumArtPixels.size() < maxDecodedLen) {
@@ -144,7 +147,6 @@ public:
                           base64Len
                         );
 
-                        // Accept any valid decode that produced data
                         hasArt = (ret == 0 && outLen > 0);
                     } else {
                         hasArt = false;
@@ -175,6 +177,55 @@ public:
     template <typename CtxType, typename FontType>
     bool draw(CtxType* ctx, FontType* font, int width, int height, unsigned long nowMs) {
         
+        // -------------------------------------------------------------
+        // Option: Show Full Size Album Art Only (64x64)
+        // -------------------------------------------------------------
+        if (prefSpotifyShowOnlyAlbumArt) {
+            const int ART_SIZE = 64; 
+            int offsetX = (width - ART_SIZE) / 2;
+            if (offsetX < 0) offsetX = 0;
+            int offsetY = (height - ART_SIZE) / 2;
+            if (offsetY < 0) offsetY = 0;
+
+            if (hasArt && !albumArtPixels.empty()) {
+                size_t totalBytes = albumArtPixels.size();
+                const int sourceWidth = 64;
+                int sourceHeight = totalBytes / (sourceWidth * 3);
+                if (sourceHeight <= 0) sourceHeight = 64;
+
+                for (int y = 0; y < height; y++) {
+                    for (int x = 0; x < width; x++) {
+                        if (x >= offsetX && x < (offsetX + ART_SIZE) && y >= offsetY && y < (offsetY + ART_SIZE)) {
+                            int px = x - offsetX;
+                            int py = y - offsetY;
+                            
+                            int srcY = (py * sourceHeight) / ART_SIZE;
+                            int srcX = px; 
+
+                            size_t byteIndex = (srcY * sourceWidth + srcX) * 3;
+                            if (byteIndex + 2 < totalBytes) {
+                                uint8_t r = albumArtPixels[byteIndex];
+                                uint8_t g = albumArtPixels[byteIndex + 1];
+                                uint8_t b = albumArtPixels[byteIndex + 2];
+                                ctx->setPixel(x, y, r, g, b);
+                            } else {
+                                ctx->setPixel(x, y, 0, 0, 0);
+                            }
+                        } else {
+                            ctx->setPixel(x, y, 0, 0, 0); // Black padding outside art
+                        }
+                    }
+                }
+            } else {
+                ctx->setFillStyle(0x000000);
+                ctx->fillRect(0, 0, width, height);
+            }
+            return false;
+        }
+
+        // -------------------------------------------------------------
+        // Standard Layout (Art + Scrolling Text + Progress Bar)
+        // -------------------------------------------------------------
         textWidth = font->getTextWidth(fullDisplayStr, 1);
 
         if (lastUpdateMs == 0) lastUpdateMs = nowMs;
@@ -195,62 +246,57 @@ public:
 
         int artHeight = height - 16; // Save bottom 16px for text + progress bar
 
-// -------------------------------------------------------------
-// 1. Draw Centered Album Art Panel
-// -------------------------------------------------------------
-const int ART_WIDTH = 64;
-const int ART_HEIGHT = 48; // artHeight is actualPanelY - 16
+        // 1. Draw Centered Album Art Panel (Scaled down from 64x64 buffer to fit 48px height)
+        const int ART_WIDTH = 64;
+        const int ART_HEIGHT = 48; 
 
-// Calculate left margin to center a 64px image on 'width' (128px => offset is 32px)
-int offsetX = (width - ART_WIDTH) / 2;
-if (offsetX < 0) offsetX = 0;
+        int offsetX = (width - ART_WIDTH) / 2;
+        if (offsetX < 0) offsetX = 0;
 
-if (hasArt && !albumArtPixels.empty()) {
-    size_t byteIndex = 0;
-    size_t totalBytes = albumArtPixels.size();
+        if (hasArt && !albumArtPixels.empty()) {
+            size_t totalBytes = albumArtPixels.size();
+            const int sourceWidth = 64;
+            int sourceHeight = totalBytes / (sourceWidth * 3);
+            if (sourceHeight <= 0) sourceHeight = 64;
 
-    for (int y = 0; y < artHeight; y++) {
-        for (int x = 0; x < width; x++) {
-            // Check if current X position falls inside the centered 64px album art zone
-            if (x >= offsetX && x < (offsetX + ART_WIDTH) && y < ART_HEIGHT) {
-                if (byteIndex + 2 < totalBytes) {
-                    uint8_t r = albumArtPixels[byteIndex++];
-                    uint8_t g = albumArtPixels[byteIndex++];
-                    uint8_t b = albumArtPixels[byteIndex++];
-                    ctx->setPixel(x, y, r, g, b);
-                } else {
-                    ctx->setPixel(x, y, 0, 0, 0);
+            for (int y = 0; y < artHeight; y++) {
+                for (int x = 0; x < width; x++) {
+                    if (x >= offsetX && x < (offsetX + ART_WIDTH) && y < ART_HEIGHT) {
+                        int px = x - offsetX;
+                        int py = y;
+
+                        int srcY = (py * sourceHeight) / ART_HEIGHT;
+                        int srcX = px;
+
+                        size_t byteIndex = (srcY * sourceWidth + srcX) * 3;
+                        if (byteIndex + 2 < totalBytes) {
+                            uint8_t r = albumArtPixels[byteIndex];
+                            uint8_t g = albumArtPixels[byteIndex + 1];
+                            uint8_t b = albumArtPixels[byteIndex + 2];
+                            ctx->setPixel(x, y, r, g, b);
+                        } else {
+                            ctx->setPixel(x, y, 0, 0, 0);
+                        }
+                    } else {
+                        ctx->setPixel(x, y, 16, 16, 16); 
+                    }
                 }
-            } else {
-                // Dark background padding on the left and right sides of the centered art
-                ctx->setPixel(x, y, 16, 16, 16); 
             }
+        } else {
+            ctx->setFillStyle(0x101010);
+            ctx->fillRect(0, 0, width, artHeight);
         }
-    }
-} else {
-    // Fallback: Dark background for the entire upper area if no art loaded
-    ctx->setFillStyle(0x101010);
-    ctx->fillRect(0, 0, width, artHeight);
-}
 
-        // -------------------------------------------------------------
-        // 2. Clear Bottom Banner Area (Y = artHeight to height)
-        // -------------------------------------------------------------
+        // 2. Clear Bottom Banner Area
         ctx->setFillStyle(0x000000);
         ctx->fillRect(0, artHeight, width, 16);
 
-        // -------------------------------------------------------------
         // 3. Draw Scrolling Text in Banner Area
-        // -------------------------------------------------------------
         ctx->setFillStyle(textColor);
-        
-        // Dynamically compute baseline Y offset (accounts for height variations)
         int yPos = height - 6; 
         font->drawText(ctx, fullDisplayStr, static_cast<int>(scrollX), yPos, 1);
 
-        // -------------------------------------------------------------
-        // 4. Draw Progress Bar at very bottom (2px thick)
-        // -------------------------------------------------------------
+        // 4. Draw Progress Bar at very bottom
         if (isPlaying && progressRatio > 0.0f) {
             float barWidth = (float)width * progressRatio;
             ctx->setFillStyle(spotifyGreen); 

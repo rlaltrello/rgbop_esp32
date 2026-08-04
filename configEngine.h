@@ -21,6 +21,7 @@ extern bool prefShowDoodles;
 extern bool prefShowEarthquake;
 extern bool prefShowSpotify;
 extern bool prefSpotifyShowOnPause;
+extern bool prefSpotifyShowOnlyAlbumArt;
 extern bool prefShowDiags;
 extern bool prefShowRadar;
 
@@ -89,6 +90,7 @@ static bool loadConfig() {
     prefShowEarthquake = doc["earthquake"] | true;
     prefShowSpotify = doc["spotify"] | true;
     prefSpotifyShowOnPause = doc["spotifyShowOnPause"] | true;
+    prefSpotifyShowOnlyAlbumArt = doc["spotifyShowOnlyAlbumArt"] | false;
     prefShowDiags = doc["diags"] | true;
     prefShowRadar = doc["radar"] | true;
  
@@ -178,6 +180,7 @@ void saveConfig() {
     doc["earthquake"] = prefShowEarthquake;
     doc["spotify"] = prefShowSpotify;
     doc["spotifyShowOnPause"] = prefSpotifyShowOnPause;
+    doc["spotifyShowOnlyAlbumArt"] = prefSpotifyShowOnlyAlbumArt;
     doc["diags"] = prefShowDiags;
     doc["radar"] = prefShowRadar;
 
