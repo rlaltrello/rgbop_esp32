@@ -117,4 +117,5 @@ Available widgets include:
 
 ---
 
+Laying in Game mode - Added a test space shooter and working on a dungeon game as well.
 
