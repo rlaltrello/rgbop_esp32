@@ -304,7 +304,6 @@ gameManager.onGameStart([](const String& gameName) {
     }
 
     if (gameName == "dungeon") {
-        dungeon.loadMap("http://rgbop.com:8084/api/dungeon/map/1");
         dungeon.reset();
     } else {
         shooter.reset();

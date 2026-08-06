@@ -27,6 +27,7 @@ struct ParsedItem {
 class Dungeon {
 public:
   enum DungeonState {
+    STATE_LOADING,
     STATE_PLAYING,
     STATE_INVENTORY
   };
@@ -41,10 +42,11 @@ private:
   std::map<String, ItemInfo> itemDefinitions;
   std::vector<ItemInfo> playerInventory;
 
-  DungeonState currentState = STATE_PLAYING;
+  DungeonState currentState = STATE_LOADING;
 
   int mapSizeX = 0;
   int mapSizeY = 0;
+  int level = 0;
   uint16_t wallColor = 0x07E0;  // Default green (RGB565)
 
   String activeMessage = "";
@@ -250,6 +252,7 @@ public:
     };
     mapSizeX = 8;
     mapSizeY = 8;
+    level = 1;
   }
 
   bool loadMap(const char* url) {
@@ -274,6 +277,19 @@ public:
         Serial.println(error.c_str());
         http.end();
         return false;
+      }
+
+      if (doc["playerX"].is<int>()) {
+        playerX = doc["playerX"];
+      }
+      if (doc["playerY"].is<int>()) {
+        playerY = doc["playerY"];
+      }
+      if (doc["playerDir"].is<int>()) {
+        playerDir = doc["playerDir"];
+      }
+      if (doc["level"].is<int>()) {
+        level = doc["level"];
       }
 
       if (doc["color"].is<const char*>()) {
@@ -335,7 +351,7 @@ public:
         itemMap = tempItemMap;
       }
 
-      Serial.printf("Map successfully updated: %dx%d\n", mapSizeX, mapSizeY);
+      Serial.printf("Level %d Map successfully updated: %dx%d\n Player Position:%d,%d\n", level, mapSizeX, mapSizeY,playerX,playerY);
       http.end();
       return true;
     } else {
@@ -348,13 +364,8 @@ public:
   }
 
   void reset() {
-    playerX = 1;
-    playerY = 1;
-    playerDir = 0;
-    activeMessage = "";
-    currentState = STATE_PLAYING;
+    currentState = STATE_LOADING;
     playerInventory.clear();
-    checkForItemAtPlayerPos();
   }
 
   bool hasKeyForDoor(const ItemInfo& doorInfo) {
@@ -429,6 +440,17 @@ void moveForward() {
     static bool aButtonHeld = false;
     static bool bButtonHeld = false;
     static bool anyButtonHeld = false;
+
+    if (currentState == STATE_LOADING) {
+      char url[160];
+      snprintf(url, sizeof(url), 
+                 "https://rgbop.com/api/dungeon/map/%d", 
+                 level);
+      if (loadMap(url)) {
+        checkForItemAtPlayerPos();
+        currentState = STATE_PLAYING;
+      }
+    }
 
     if (currentState == STATE_PLAYING) {
       if (input.up) {
@@ -612,6 +634,17 @@ auto tryOpenDoor = [&](int tx, int ty, int tdir) -> bool {
 
  void draw(MatrixPanel_I2S_DMA& display) {
     display.fillScreen(0);
+
+  // Prevent rendering default map/position while waiting for network load
+  if (currentState == STATE_LOADING) {
+    display.setFont(&TomThumb);
+    display.setTextSize(1);
+    display.setTextColor(display.color565(255, 255, 255));
+    display.setCursor(2, 32);
+    display.print("Loading...");
+    display.flipDMABuffer();
+    return;
+  }
 
     // Handle inventory screen rendering
     if (currentState == STATE_INVENTORY) {
