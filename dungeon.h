@@ -218,6 +218,7 @@ ParsedItem parseItemKey(const String& rawKey) {
 }
 
 void checkForItemAtPlayerPos() {
+  Serial.printf("Player on level %d at position:%d,%d facing %d\n", level,playerX,playerY,playerDir);
   activeMessage = "";  
   if (playerY >= 0 && playerY < itemMap.size() && playerX >= 0 && playerX < itemMap[0].size()) {
     String rawKey = itemMap[playerY][playerX];
@@ -527,7 +528,7 @@ auto tryOpenDoor = [&](int tx, int ty, int tdir) -> bool {
             actionDone = true;
           }
 
-          // 3. If no door was blocking us, try picking up an item on our tile
+          // 3. If no door was blocking us, check our current tile for items or stairs
           if (!actionDone) {
             if (playerY >= 0 && playerY < itemMap.size() && playerX >= 0 && playerX < itemMap[0].size()) {
               String itemKey = itemMap[playerY][playerX];
@@ -535,10 +536,18 @@ auto tryOpenDoor = [&](int tx, int ty, int tdir) -> bool {
               if (itemKey.length() > 0 && itemKey != " ") {
                 ParsedItem currentItem = parseItemKey(itemKey);
                 
-                // Look up definition and ensure it is not a door before collecting
                 if (itemDefinitions.count(currentItem.baseKey)) {
                   ItemInfo info = itemDefinitions[currentItem.baseKey];
-                  if (info.name.indexOf("Door") == -1 && currentItem.baseKey.indexOf("Door") == -1) {
+                  
+                  // Check if player is pressing A on Stairs Down
+                  if (info.name.indexOf("Stairs") != -1 && info.name.indexOf("Down") != -1) {
+                    level++;                    // Increment the level counter
+                    currentState = STATE_LOADING; // Trigger the loading state machine
+                    activeMessage = "";         
+                    Serial.printf("Descending to Level %d\n", level);
+                  }
+                  // Otherwise handle normal collectibles
+                  else if (info.name.indexOf("Door") == -1 && currentItem.baseKey.indexOf("Door") == -1) {
                     if (info.collectible) {
                       playerInventory.push_back(info);
                       itemMap[playerY][playerX] = " ";
