@@ -18,6 +18,12 @@ struct ItemInfo {
   bool collectible;
 };
 
+struct ParsedItem {
+  String baseKey;
+  int wallDir = -1;
+  bool isOpen = false;
+};
+
 class Dungeon {
 public:
   enum DungeonState {
@@ -55,6 +61,127 @@ private:
     return map[y][x] == 1;
   }
 
+  
+
+// Checks if a door exists on a wall, returning its color and open state by reference
+  bool getDoorDataOnWall(int cellX, int cellY, int wallDir, uint16_t& outColor, bool& outIsOpen) {
+    // 1. Check current cell
+    if (cellY >= 0 && cellY < itemMap.size() && cellX >= 0 && cellX < itemMap[0].size()) {
+      String rawKey = itemMap[cellY][cellX];
+      rawKey.trim();
+      if (rawKey.length() > 0 && rawKey != " ") {
+        ParsedItem item = parseItemKey(rawKey);
+        if (itemDefinitions.count(item.baseKey)) {
+          ItemInfo info = itemDefinitions[item.baseKey];
+          if (info.name.indexOf("Door") != -1 || item.baseKey.indexOf("Door") != -1) {
+            if (item.wallDir == -1 || item.wallDir == wallDir) {
+              outColor = parseHexColor(info.color.c_str());
+              outIsOpen = item.isOpen;
+              return true;
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Check adjacent cell
+    int adjX = cellX + fwdX[wallDir];
+    int adjY = cellY + fwdY[wallDir];
+    int oppDir = (wallDir + 2) % 4;
+
+    if (adjY >= 0 && adjY < itemMap.size() && adjX >= 0 && adjX < itemMap[0].size()) {
+      String rawKey = itemMap[adjY][adjX];
+      rawKey.trim();
+      if (rawKey.length() > 0 && rawKey != " ") {
+        ParsedItem item = parseItemKey(rawKey);
+        if (itemDefinitions.count(item.baseKey)) {
+          ItemInfo info = itemDefinitions[item.baseKey];
+          if (info.name.indexOf("Door") != -1 || item.baseKey.indexOf("Door") != -1) {
+            if (item.wallDir == oppDir) {
+              outColor = parseHexColor(info.color.c_str());
+              outIsOpen = item.isOpen;
+              return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  // Draws a door swung open into the room using two triangles to form a perspective trapezoid
+  void drawOpenFrontDoor(MatrixPanel_I2S_DMA& display, int startX, int endX, int box, uint16_t color) {
+    int minX = std::min(startX, endX);
+    int maxX = std::max(startX, endX);
+    int w = maxX - minX;
+    int h = (63 - box) - box + 1;
+    if (w <= 0 || h <= 0) return;
+
+    int doorW = w / 3;
+    int doorH = (h * 2) / 3;
+    int doorX = minX + (w / 3);
+    int doorY = (63 - box) - doorH + 1;
+
+    // Swing offset creates the visual of the right edge pushing deeper into the room
+    int swingOffset = doorH / 5; 
+    int hingeX = doorX; 
+    int swingX = doorX + doorW;
+    
+    // Triangle 1: Left Hinge Top, Left Hinge Bottom, Swung Edge Top
+    display.fillTriangle(hingeX, doorY, hingeX, doorY + doorH - 1, swingX, doorY + swingOffset, color);
+    // Triangle 2: Left Hinge Bottom, Swung Edge Bottom, Swung Edge Top
+    display.fillTriangle(hingeX, doorY + doorH - 1, swingX, doorY + doorH - 1 - swingOffset, swingX, doorY + swingOffset, color);
+  }
+
+  // Draws a door on the left or right walls, factoring in linear perspective
+  void drawSideDoor(MatrixPanel_I2S_DMA& display, int boxCurr, int boxNext, bool isLeft, uint16_t color) {
+    int w = boxNext - boxCurr;
+    if (w <= 0) return;
+
+    if (isLeft) {
+      int startX = boxCurr + w / 3;
+      int endX = boxCurr + (w * 2) / 3;
+      for (int x = startX; x <= endX; x++) {
+        int yCeil = x;
+        int yFloor = 63 - x;
+        int h = yFloor - yCeil + 1;
+        int doorH = (h * 2) / 3;
+        int yDoorTop = yFloor - doorH + 1;
+        display.drawFastVLine(x, yDoorTop, doorH, color);
+      }
+    } else {
+      int startX = (63 - boxCurr) - w / 3;
+      int endX = (63 - boxCurr) - (w * 2) / 3;
+      for (int x = startX; x >= endX; x--) {
+        int distFromRight = 63 - x;
+        int yCeil = distFromRight;
+        int yFloor = 63 - distFromRight; 
+        int h = yFloor - yCeil + 1;
+        int doorH = (h * 2) / 3;
+        int yDoorTop = yFloor - doorH + 1;
+        display.drawFastVLine(x, yDoorTop, doorH, color);
+      }
+    }
+  }
+
+  // Draws a flat, front-facing door (for front walls and lateral scans)
+  void drawFrontDoor(MatrixPanel_I2S_DMA& display, int startX, int endX, int box, uint16_t color) {
+    int minX = std::min(startX, endX);
+    int maxX = std::max(startX, endX);
+    int w = maxX - minX;
+    int h = (63 - box) - box + 1;
+    if (w <= 0 || h <= 0) return;
+
+    int doorW = w / 3;
+    int doorH = (h * 2) / 3;
+    int doorX = minX + (w / 3);
+    int doorY = (63 - box) - doorH + 1; // Rests on the floor
+
+    if (doorW > 0 && doorH > 0) {
+      display.fillRect(doorX, doorY, doorW, doorH, color);
+    }
+  }
+
   uint16_t parseHexColor(const char* hexStr) {
     if (!hexStr) return 0x07E0;
     if (hexStr[0] == '#') hexStr++;
@@ -65,21 +192,47 @@ private:
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
   }
 
-  void checkForItemAtPlayerPos() {
-    activeMessage = "";  // Clear text when leaving the previous tile
-    if (playerY >= 0 && playerY < itemMap.size() && playerX >= 0 && playerX < itemMap[0].size()) {
-      String itemKey = itemMap[playerY][playerX];
-      itemKey.trim();
-      if (itemKey.length() > 0 && itemKey != " ") {
-        if (itemDefinitions.count(itemKey)) {
-          ItemInfo info = itemDefinitions[itemKey];
-          activeMessage = info.name;
-        } else {
-          activeMessage = itemKey;
-        }
+ParsedItem parseItemKey(const String& rawKey) {
+  ParsedItem result;
+  int firstColon = rawKey.indexOf(':');
+  
+  if (firstColon != -1) {
+    result.baseKey = rawKey.substring(0, firstColon);
+    result.baseKey.trim();
+    
+    int secondColon = rawKey.indexOf(':', firstColon + 1);
+    if (secondColon != -1) {
+      result.wallDir = rawKey.substring(firstColon + 1, secondColon).toInt();
+      String state = rawKey.substring(secondColon + 1);
+      if (state == "O") result.isOpen = true;
+    } else {
+      result.wallDir = rawKey.substring(firstColon + 1).toInt();
+    }
+  } else {
+    result.baseKey = rawKey;
+    result.baseKey.trim();
+  }
+  return result;
+}
+
+void checkForItemAtPlayerPos() {
+  activeMessage = "";  
+  if (playerY >= 0 && playerY < itemMap.size() && playerX >= 0 && playerX < itemMap[0].size()) {
+    String rawKey = itemMap[playerY][playerX];
+    rawKey.trim();
+    
+    if (rawKey.length() > 0 && rawKey != " ") {
+      ParsedItem parsed = parseItemKey(rawKey);
+      
+      if (itemDefinitions.count(parsed.baseKey)) {
+        ItemInfo info = itemDefinitions[parsed.baseKey];
+        activeMessage = info.name;
+      } else {
+        activeMessage = parsed.baseKey;
       }
     }
   }
+}
 
 public:
   Dungeon(int startX = 1, int startY = 1, int startDir = 0)
@@ -204,15 +357,62 @@ public:
     checkForItemAtPlayerPos();
   }
 
-  void moveForward() {
-    int nextX = playerX + fwdX[playerDir];
-    int nextY = playerY + fwdY[playerDir];
-    if (!isWallAt(nextX, nextY)) {
-      playerX = nextX;
-      playerY = nextY;
-      checkForItemAtPlayerPos();
+  bool hasKeyForDoor(const ItemInfo& doorInfo) {
+  for (auto it = playerInventory.begin(); it != playerInventory.end(); ++it) {
+    // Check if the inventory item is a key
+    bool isKey = it->name.indexOf("Key") != -1;
+    
+    // Match by color or by transforming "Door" to "Key" in the name
+    bool colorMatch = (it->color == doorInfo.color);
+    
+    String expectedKeyName = doorInfo.name;
+    expectedKeyName.replace("Door", "Key");
+    bool nameMatch = (it->name == expectedKeyName);
+
+    if (isKey && (colorMatch || nameMatch)) {
+      // Optional: Remove the key from inventory once used (single-use key)
+      // playerInventory.erase(it);
+      return true;
     }
   }
+  return false;
+}
+
+  bool isDoorBlocking(int x, int y, int facingDir) {
+  if (y >= 0 && y < itemMap.size() && x >= 0 && x < itemMap[0].size()) {
+    ParsedItem parsed = parseItemKey(itemMap[y][x]);
+    // Check if it's a door and if its designated wall matches the direction you are facing/entering from
+    if (parsed.wallDir != -1 && parsed.baseKey.indexOf("Door") != -1) {
+      if (parsed.wallDir == facingDir) {
+        return true; // Door is blocking this side
+      }
+    }
+  }
+  return false;
+}
+
+void moveForward() {
+  int nextX = playerX + fwdX[playerDir];
+  int nextY = playerY + fwdY[playerDir];
+
+  uint16_t doorColor;
+  bool isDoorOpen = false;
+  bool hasDoor = getDoorDataOnWall(playerX, playerY, playerDir, doorColor, isDoorOpen);
+
+  // If the door is open, clear the wall tile in the map array so player can walk through
+  if (hasDoor && isDoorOpen) {
+    if (nextY >= 0 && nextY < mapSizeY && nextX >= 0 && nextX < mapSizeX) {
+      map[nextY][nextX] = 0;
+    }
+  }
+
+  // Move forward if target is not a solid wall and not a closed door
+  if (!isWallAt(nextX, nextY) && !(hasDoor && !isDoorOpen)) {
+    playerX = nextX;
+    playerY = nextY;
+    checkForItemAtPlayerPos();
+  }
+}
 
   void turnLeft() {
     playerDir = (playerDir + 3) % 4;
@@ -255,20 +455,75 @@ public:
         buttonHeld = false;
       }
 
-      // Handle 'btnA' button press to collect collectible items
+// Handle 'btnA' button press to interact with doors OR collect items
       if (input.btnA) {
         if (!aButtonHeld) {
-          if (playerY >= 0 && playerY < itemMap.size() && playerX >= 0 && playerX < itemMap[0].size()) {
-            String itemKey = itemMap[playerY][playerX];
-            itemKey.trim();
-            if (itemKey.length() > 0 && itemKey != " ") {
-              if (itemDefinitions.count(itemKey)) {
-                ItemInfo info = itemDefinitions[itemKey];
-                if (info.collectible) {
-                  playerInventory.push_back(info);
-                  itemMap[playerY][playerX] = " ";
-                  activeMessage = "";  // Clear text when collected
-                  Serial.printf("Collected: %s\n", info.name.c_str());
+          bool actionDone = false;
+          int nextX = playerX + fwdX[playerDir];
+          int nextY = playerY + fwdY[playerDir];
+          int oppDir = (playerDir + 2) % 4;
+
+          // Helper lambda to attempt unlocking a door on a specific cell
+auto tryOpenDoor = [&](int tx, int ty, int tdir) -> bool {
+  if (ty >= 0 && ty < itemMap.size() && tx >= 0 && tx < itemMap[0].size()) {
+    String rawKey = itemMap[ty][tx];
+    ParsedItem item = parseItemKey(rawKey);
+    
+    if (item.wallDir == tdir || item.wallDir == -1) {
+      if (!item.isOpen && itemDefinitions.count(item.baseKey)) {
+        ItemInfo info = itemDefinitions[item.baseKey];
+        
+        if (info.name.indexOf("Door") != -1 || item.baseKey.indexOf("Door") != -1) {
+          if (hasKeyForDoor(info)) {
+            // Mark door as Open
+            itemMap[ty][tx] = item.baseKey + ":" + String(item.wallDir) + ":O";
+            activeMessage = "Door unlocked!";
+
+            // Clear the wall collision at the doorway target tile
+            int doorTargetX = playerX + fwdX[playerDir];
+            int doorTargetY = playerY + fwdY[playerDir];
+            if (doorTargetY >= 0 && doorTargetY < mapSizeY && doorTargetX >= 0 && doorTargetX < mapSizeX) {
+              map[doorTargetY][doorTargetX] = 0;
+            }
+          } else {
+            activeMessage = "Locked!";
+          }
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+};
+
+          // 1. Try opening door on current tile facing player
+          if (tryOpenDoor(playerX, playerY, playerDir)) {
+            actionDone = true;
+          } 
+          // 2. Try opening door on adjacent tile facing player
+          else if (tryOpenDoor(nextX, nextY, oppDir)) {
+            actionDone = true;
+          }
+
+          // 3. If no door was blocking us, try picking up an item on our tile
+          if (!actionDone) {
+            if (playerY >= 0 && playerY < itemMap.size() && playerX >= 0 && playerX < itemMap[0].size()) {
+              String itemKey = itemMap[playerY][playerX];
+              itemKey.trim();
+              if (itemKey.length() > 0 && itemKey != " ") {
+                ParsedItem currentItem = parseItemKey(itemKey);
+                
+                // Look up definition and ensure it is not a door before collecting
+                if (itemDefinitions.count(currentItem.baseKey)) {
+                  ItemInfo info = itemDefinitions[currentItem.baseKey];
+                  if (info.name.indexOf("Door") == -1 && currentItem.baseKey.indexOf("Door") == -1) {
+                    if (info.collectible) {
+                      playerInventory.push_back(info);
+                      itemMap[playerY][playerX] = " ";
+                      activeMessage = "";  
+                      Serial.printf("Collected: %s\n", info.name.c_str());
+                    }
+                  }
                 }
               }
             }
@@ -355,7 +610,7 @@ public:
     }
   }
 
-  void draw(MatrixPanel_I2S_DMA& display) {
+ void draw(MatrixPanel_I2S_DMA& display) {
     display.fillScreen(0);
 
     // Handle inventory screen rendering
@@ -373,16 +628,14 @@ public:
         display.print("Empty");
       } else {
         for (const auto& item : playerInventory) {
-          // If the item is a key, draw the sprite icon next to it
           if (item.name == "Key" || item.name.indexOf("Key") != -1) {
-            drawKeySprite(display, 2, yPos + 1 - 5, parseHexColor(item.color.c_str()));  // key icon
-            display.setCursor(13, yPos + 1);                                             // Offset text past the 9px wide icon
+            drawKeySprite(display, 2, yPos + 1 - 5, parseHexColor(item.color.c_str()));
+            display.setCursor(13, yPos + 1);
           } else {
             display.setCursor(2, yPos);
           }
-
           display.print(item.name);
-          yPos += 10;  // Give a bit more vertical spacing for icons
+          yPos += 10;
           if (yPos > 60) break;
         }
       }
@@ -390,16 +643,21 @@ public:
       return;
     }
 
-    // Handle 3D Dungeon view rendering
+// Handle 3D Dungeon view rendering
     uint16_t color = wallColor;
 
     int d;
     bool drawing = true;
 
+    int leftDir = (playerDir + 3) % 4;
+    int rightDir = (playerDir + 1) % 4;
+
     int prevX = playerX - fwdX[playerDir];
     int prevY = playerY - fwdY[playerDir];
-    bool isPrevLeftSolid = isWallAt(prevX - rightX[playerDir], prevY - rightY[playerDir]);
-    bool isPrevRightSolid = isWallAt(prevX + rightX[playerDir], prevY + rightY[playerDir]);
+    
+    uint16_t c; bool o;
+    bool isPrevLeftSolid = isWallAt(prevX - rightX[playerDir], prevY - rightY[playerDir]) || (getDoorDataOnWall(prevX, prevY, leftDir, c, o) && !o);
+    bool isPrevRightSolid = isWallAt(prevX + rightX[playerDir], prevY + rightY[playerDir]) || (getDoorDataOnWall(prevX, prevY, rightDir, c, o) && !o);
 
     bool leftOccluded = false;
     bool rightOccluded = false;
@@ -421,10 +679,19 @@ public:
       int nextRightX = nextX + rightX[playerDir];
       int nextRightY = nextY + rightY[playerDir];
 
-      bool isLeftSolid = isWallAt(leftX, leftY);
-      bool isNextLeftSolid = isWallAt(nextLeftX, nextLeftY);
-      bool isRightSolid = isWallAt(rightX_pos, rightY_pos);
-      bool isNextRightSolid = isWallAt(nextRightX, nextRightY);
+      uint16_t cL, nL, cR, nR, fC;
+      bool oL, noL, oR, noR, fO;
+      
+      bool hasCurrLeft = getDoorDataOnWall(currX, currY, leftDir, cL, oL);
+      bool hasNextLeft = getDoorDataOnWall(nextX, nextY, leftDir, nL, noL);
+      bool hasCurrRight = getDoorDataOnWall(currX, currY, rightDir, cR, oR);
+      bool hasNextRight = getDoorDataOnWall(nextX, nextY, rightDir, nR, noR);
+      bool hasFront = getDoorDataOnWall(currX, currY, playerDir, fC, fO);
+
+      bool isLeftSolid = isWallAt(leftX, leftY) || (hasCurrLeft && !oL);
+      bool isNextLeftSolid = isWallAt(nextLeftX, nextLeftY) || (hasNextLeft && !noL);
+      bool isRightSolid = isWallAt(rightX_pos, rightY_pos) || (hasCurrRight && !oR);
+      bool isNextRightSolid = isWallAt(nextRightX, nextRightY) || (hasNextRight && !noR);
 
       int boxCurr = depthInset[d];
       int boxNext = depthInset[d + 1];
@@ -438,48 +705,34 @@ public:
       if (isLeftSolid) {
         display.drawLine(boxCurr, boxCurr, boxNext, boxNext, color);
         display.drawLine(boxCurr, 63 - boxCurr, boxNext, 63 - boxNext, color);
-
-        if (!isNextLeftSolid) {
-          display.drawFastVLine(boxNext, boxNext, boxHeight, color);
-        }
-        if (!isPrevLeftSolid) {
-          display.drawFastVLine(boxCurr, boxCurr, (63 - boxCurr) - boxCurr + 1, color);
-        }
+        if (!isNextLeftSolid) display.drawFastVLine(boxNext, boxNext, boxHeight, color);
+        if (!isPrevLeftSolid) display.drawFastVLine(boxCurr, boxCurr, (63 - boxCurr) - boxCurr + 1, color);
+        
+        if (hasCurrLeft && !oL) drawSideDoor(display, boxCurr, boxNext, true, cL);
       } else {
         if (isPrevLeftSolid && isNextLeftSolid) {
           display.drawLine(boxCurr, boxNext, boxNext, boxNext, color);
           display.drawLine(boxCurr, 63 - boxNext, boxNext, 63 - boxNext, color);
         }
-        if (isNextLeftSolid) {
-          display.drawFastVLine(boxNext, boxNext, boxHeight, color);
-        }
-        if (isPrevLeftSolid) {
-          display.drawFastVLine(boxCurr, boxCurr, (63 - boxCurr) - boxCurr + 1, color);
-        }
+        if (isNextLeftSolid) display.drawFastVLine(boxNext, boxNext, boxHeight, color);
+        if (isPrevLeftSolid) display.drawFastVLine(boxCurr, boxCurr, (63 - boxCurr) - boxCurr + 1, color);
       }
 
       // Right side rendering
       if (isRightSolid) {
         display.drawLine(63 - boxCurr, boxCurr, 63 - boxNext, boxNext, color);
         display.drawLine(63 - boxCurr, 63 - boxCurr, 63 - boxNext, 63 - boxNext, color);
-
-        if (!isNextRightSolid) {
-          display.drawFastVLine(63 - boxNext, boxNext, boxHeight, color);
-        }
-        if (!isPrevRightSolid) {
-          display.drawFastVLine(63 - boxCurr, boxCurr, (63 - boxCurr) - boxCurr + 1, color);
-        }
+        if (!isNextRightSolid) display.drawFastVLine(63 - boxNext, boxNext, boxHeight, color);
+        if (!isPrevRightSolid) display.drawFastVLine(63 - boxCurr, boxCurr, (63 - boxCurr) - boxCurr + 1, color);
+        
+        if (hasCurrRight && !oR) drawSideDoor(display, boxCurr, boxNext, false, cR);
       } else {
         if (isPrevRightSolid && isNextRightSolid) {
           display.drawLine(63 - boxCurr, boxNext, 63 - boxNext, boxNext, color);
           display.drawLine(63 - boxCurr, 63 - boxNext, 63 - boxNext, 63 - boxNext, color);
         }
-        if (isNextRightSolid) {
-          display.drawFastVLine(63 - boxNext, boxNext, boxHeight, color);
-        }
-        if (isPrevRightSolid) {
-          display.drawFastVLine(63 - boxCurr, boxCurr, (63 - boxCurr) - boxCurr + 1, color);
-        }
+        if (isNextRightSolid) display.drawFastVLine(63 - boxNext, boxNext, boxHeight, color);
+        if (isPrevRightSolid) display.drawFastVLine(63 - boxCurr, boxCurr, (63 - boxCurr) - boxCurr + 1, color);
       }
 
       // Lateral scan Left
@@ -496,15 +749,26 @@ public:
 
           if (isWallAt(cx, cy)) break;
 
-          if (isWallAt(nx, ny)) {
+          uint16_t latFrontColor; bool latFrontOpen;
+          bool hasLatFront = getDoorDataOnWall(cx, cy, playerDir, latFrontColor, latFrontOpen);
+          
+          if (isWallAt(nx, ny) || (hasLatFront && !latFrontOpen)) {
             display.drawLine(startX, boxNext, endX, boxNext, color);
             display.drawLine(startX, 63 - boxNext, endX, 63 - boxNext, color);
 
             int nnx = nx - rightX[playerDir];
             int nny = ny - rightY[playerDir];
-            if (!isWallAt(nnx, nny)) {
-              display.drawFastVLine(endX, boxNext, boxHeight, color);
+            bool isAdjacentSolid = isWallAt(nnx, nny) || (getDoorDataOnWall(nx, ny, leftDir, c, o) && !o);
+            
+            if (!isAdjacentSolid) display.drawFastVLine(endX, boxNext, boxHeight, color);
+            
+            if (hasLatFront) {
+              if (latFrontOpen) drawOpenFrontDoor(display, startX, endX, boxNext, latFrontColor);
+              else drawFrontDoor(display, startX, endX, boxNext, latFrontColor);
             }
+          } else if (hasLatFront && latFrontOpen) {
+            // Draw open doors even if the wall behind them isn't solid
+            drawOpenFrontDoor(display, startX, endX, boxNext, latFrontColor);
           }
         }
       }
@@ -523,21 +787,35 @@ public:
 
           if (isWallAt(cx, cy)) break;
 
-          if (isWallAt(nx, ny)) {
+          uint16_t latFrontColor; bool latFrontOpen;
+          bool hasLatFront = getDoorDataOnWall(cx, cy, playerDir, latFrontColor, latFrontOpen);
+
+          if (isWallAt(nx, ny) || (hasLatFront && !latFrontOpen)) {
             display.drawLine(startX, boxNext, endX, boxNext, color);
             display.drawLine(startX, 63 - boxNext, endX, 63 - boxNext, color);
 
             int nnx = nx + rightX[playerDir];
             int nny = ny + rightY[playerDir];
-            if (!isWallAt(nnx, nny)) {
-              display.drawFastVLine(endX, boxNext, boxHeight, color);
+            bool isAdjacentSolid = isWallAt(nnx, nny) || (getDoorDataOnWall(nx, ny, rightDir, c, o) && !o);
+            
+            if (!isAdjacentSolid) display.drawFastVLine(endX, boxNext, boxHeight, color);
+            
+            if (hasLatFront) {
+              if (latFrontOpen) drawOpenFrontDoor(display, startX, endX, boxNext, latFrontColor);
+              else drawFrontDoor(display, startX, endX, boxNext, latFrontColor);
             }
+          } else if (hasLatFront && latFrontOpen) {
+            drawOpenFrontDoor(display, startX, endX, boxNext, latFrontColor);
           }
         }
       }
 
-      if (isWallAt(nextX, nextY)) {
+      // Stop rendering further into depth if a wall or closed door is blocking
+      if (isWallAt(nextX, nextY) || (hasFront && !fO)) {
         drawing = false;
+      } else if (hasFront && fO) {
+        // Draw the open door on the current plane before looping to the next tile
+        drawOpenFrontDoor(display, boxNext, 63 - boxNext, boxNext, fC);
       }
 
       isPrevLeftSolid = isLeftSolid;
@@ -546,8 +824,22 @@ public:
 
     // Back wall rendering
     int box = depthInset[d];
-    if (isWallAt(playerX + (fwdX[playerDir] * d), playerY + (fwdY[playerDir] * d))) {
+    int checkX = playerX + (fwdX[playerDir] * (d - 1));
+    int checkY = playerY + (fwdY[playerDir] * (d - 1));
+    int frontWallX = checkX + fwdX[playerDir];
+    int frontWallY = checkY + fwdY[playerDir];
+
+    uint16_t frontDoorBackC; bool frontDoorBackO;
+    bool hasFrontDoorBack = getDoorDataOnWall(checkX, checkY, playerDir, frontDoorBackC, frontDoorBackO);
+    
+    if (isWallAt(frontWallX, frontWallY) || (hasFrontDoorBack && !frontDoorBackO)) {
       display.drawRect(box, box, 64 - (box * 2), 64 - (box * 2), color);
+      if (hasFrontDoorBack) {
+        if (frontDoorBackO) drawOpenFrontDoor(display, box, 63 - box, box, frontDoorBackC);
+        else drawFrontDoor(display, box, 63 - box, box, frontDoorBackC);
+      }
+    } else if (hasFrontDoorBack && frontDoorBackO) {
+      drawOpenFrontDoor(display, box, 63 - box, box, frontDoorBackC);
     }
 
     // Render active item message or sprite
@@ -561,9 +853,12 @@ public:
       bool hasSprite = false;
       bool isStairsDown = false;
       String colorStr = "#ffffff";
+      
+      // Parse out the base key to match inventory properly
+      ParsedItem parsedCurrent = parseItemKey(itemKey);
 
-      if (itemDefinitions.count(itemKey)) {
-        ItemInfo info = itemDefinitions[itemKey];
+      if (itemDefinitions.count(parsedCurrent.baseKey)) {
+        ItemInfo info = itemDefinitions[parsedCurrent.baseKey];
         colorStr = info.color;
 
         if (info.name.indexOf("Key") != -1) {
@@ -575,16 +870,12 @@ public:
       }
 
       if (hasSprite) {
-        // Center the 9x5 sprite horizontally: (64 - 9) / 2 = 27
-        // Position vertically at y = 57
         if (isStairsDown) {
-          // Make sure you have your drawStairSpriteDown function ready, or change this to match your function name
           drawStairDownSprite(display, 27, 56);
         } else {
           drawKeySprite(display, 27, 57, parseHexColor(colorStr.c_str()));
         }
       } else {
-        // Fallback to text popup for standard items
         display.setFont(&TomThumb);
         display.setTextSize(1);
         display.setTextColor(display.color565(255, 255, 255));
